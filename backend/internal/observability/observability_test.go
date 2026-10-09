@@ -125,3 +125,32 @@ func TestTerminalContentIsReadableFramedAndBudgetExhaustionExplicit(t *testing.T
 		t.Fatal("budget omission was silent")
 	}
 }
+
+func TestDetailUpdatesKeepStageStartAndTiming(t *testing.T) {
+	var events []Progress
+	ctx, run := WithRun(context.Background(), "req", "job", time.Now(), func(p Progress) error { events = append(events, p); return nil })
+	if err := Stage(ctx, "model_receiving", 1); err != nil {
+		t.Fatal(err)
+	}
+	initial := events[0]
+	bytes, chunks := 15, 2
+	if err := Update(ctx, Details{ReceivedBytes: &bytes, ReceivedChunks: &chunks}, true); err != nil {
+		t.Fatal(err)
+	}
+	bytes = 30
+	if err := Update(ctx, Details{ReceivedBytes: &bytes}, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatal("unthrottled detail writes", len(events))
+	}
+	if events[1].StageID != initial.StageID || events[1].At != initial.At || len(run.history) != 1 || len(run.Timings().Stages) != 1 {
+		t.Fatal("detail became a new stage")
+	}
+	if err := Update(ctx, Details{ReceivedBytes: &bytes}, true); err != nil {
+		t.Fatal(err)
+	}
+	if *events[2].Details.ReceivedBytes != 30 || *events[2].Details.ReceivedChunks != 2 {
+		t.Fatal("lost accumulated details")
+	}
+}

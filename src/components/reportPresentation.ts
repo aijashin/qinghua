@@ -9,7 +9,11 @@ export function scoreTotal(data: ReportData): number | null {
 }
 export function mergeProgress(records: JobProgress[], incoming: JobProgress[]): JobProgress[] {
   const seen = new Map<string, JobProgress>()
-  for (const item of [...records, ...incoming]) seen.set(`${item.code}:${item.at}:${item.attempt ?? 0}`, item)
+  for (const item of [...records, ...incoming]) {
+    const key = item.stage_id || `${item.code}:${item.at}:${item.attempt ?? 0}`
+    const previous = seen.get(key)
+    if (!previous || Date.parse(item.updated_at || item.at) >= Date.parse(previous.updated_at || previous.at)) seen.set(key, item)
+  }
   return [...seen.values()].sort((a, b) => (Date.parse(a.at) - Date.parse(b.at)) || a.elapsed_ms - b.elapsed_ms)
 }
 export function elapsedText(milliseconds: number): string {

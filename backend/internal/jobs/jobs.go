@@ -361,6 +361,7 @@ func (p *Pool) finish(ctx context.Context, j Job, r Result) error {
 	d.FinishedAt = now
 	d.Timings = j.Timings
 	terminal := observability.NewProgress("succeeded")
+	terminal.Details = &observability.Details{Saved: true}
 	if d.Timings != nil {
 		terminal.ElapsedMS = d.Timings.TotalMS
 	}
@@ -440,7 +441,17 @@ func (p *Pool) progress(ctx context.Context, id string, v observability.Progress
 		return e
 	}
 	d.Progress = &v
-	d.ProgressHistory = append(d.ProgressHistory, v)
+	found := false
+	for i, previous := range d.ProgressHistory {
+		if v.StageID != "" && previous.StageID == v.StageID {
+			d.ProgressHistory[i] = v
+			found = true
+			break
+		}
+	}
+	if !found {
+		d.ProgressHistory = append(d.ProgressHistory, v)
+	}
 	b, _ := json.Marshal(d)
 	if _, e = tx.ExecContext(ctx, `UPDATE jobs SET telemetry=?,stage=? WHERE id=?`, string(b), v.Label, id); e != nil {
 		return e

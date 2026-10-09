@@ -5,7 +5,7 @@
 ## 存储约定
 
 - 单实例 SQLite，数据库文件为 `DATA_DIR/zhiwei.db`，原始文件保存在 `DATA_DIR/files/<服务端存储键>`。数据库启用 WAL、外键检查和5秒忙等待，当前进程最多使用一个数据库连接。
-- 业务ID通常由16个随机字节生成32位十六进制字符串；内置默认规则ID为 `teaching-example-v1`。`system` 是示例资料的所有者标识，不是自动创建的登录账号。
+- 业务ID通常由16个随机字节生成32位十六进制字符串；系统内置规则使用固定ID `metallography-learning-v1`，启动时幂等发布。`system` 是内置资料或历史资料的所有者标识，不是自动创建的登录账号。
 - 时间以UTC RFC3339文本保存；应用时间可含小数秒。JSON中的未填写关联常用空字符串，部分文档版本字段在导入草稿中可以为 `null`。
 - 下表的PK、UNIQUE、NOT NULL、FK仅描述真实SQL约束。JSON内的业务关联、角色权限、分数范围和状态流转主要由应用验证，不应误认为数据库都设有外键或CHECK。
 - 业务实体通过统一 `entities` 表存储，当前没有分别命名为 `samples`、`reports`、`documents` 的物理表，也没有独立的通用审计表或模型训练表。
@@ -16,7 +16,7 @@
 
 | 字段 | 类型 | SQL约束/默认值 | 含义 |
 | --- | --- | --- | --- |
-| `version` | `INTEGER` | PK | 已应用的物理结构版本；当前版本2，版本1建初始表，版本2增加jobs.telemetry。 |
+| `version` | `INTEGER` | PK | 已应用的物理结构版本；当前版本3，版本1建初始表，版本2增加jobs.telemetry，版本3归档旧示例并增加班级记录查询索引。 |
 | `applied_at` | `TEXT` | NOT NULL | 首次应用该版本的UTC时间。 |
 
 ### `users`
@@ -195,7 +195,7 @@ FTS5虚拟表；SQLite自行维护其影子表，业务代码不直接写影子�
 | `sources` | 本次实际检索且被模型引用的 `{id,title,content}` 快照；与报告citations对应 |
 | `retrieved_sources` | 本次检索到的全部候选来源，包含未引用片段，不能全部当作模型的引用证据 |
 | `rubric` | 生成时的完整评分规则快照，包括规则ID、版本（如果存在）、四项和细则 |
-| `model, prompt_version` | 实际配置的模型名称与代码提示词版本，当前提示词版本 `metallography-v2` |
+| `model, prompt_version` | 实际配置的模型名称与代码提示词版本，当前提示词版本 `metallography-v4`；历史报告不改写 |
 | `latest_review?` | 最新独立教师复核记录 |
 | `demo, source_atlas_id` | 沿样本保留的示例来源 |
 
@@ -210,18 +210,18 @@ FTS5虚拟表；SQLite自行维护其影子表，业务代码不直接写影子�
 | `understanding/identify` | `summary, candidates, dimensions, questions, limitations, citations`。候选包含 `name,evidence,uncertainty`；五维恰为成分、工艺、组织、性能、应用，每项 `name,content,basis`，basis为known/observed/inferred。 |
 | `coaching` | `summary, questions, suggestions, verification_plan, limitations, citations`，提供有前提的训练建议与验证问题。 |
 
-模型输出的 `citations` 只能取本次实际检索片段ID；保存报告时 `sources` 只保留被引用项，`retrieved_sources`保留全部候选。学生修正不能增加不属于原报告sources的引用。来源归档后旧片段不删除；有权访问相关历史报告的用户仍可读其引用片段。原始来源快照没有单独的“知识库版本号”字段；具体文档归属通过片段表定位，文档版本通过文档实体和知识检索响应提供，不应虚构另一套版本列。
+模型输出的 `citations` 只能取本次实际提供给模型的来源ID；保存报告时 `sources` 只保留被引用项，`retrieved_sources`保留全部候选。学生修正不能增加不属于原报告sources的引用。来源归档、删除或撤回后不删除旧片段和参考快照；有权访问相关历史报告的用户仍可读当时引用及图片。`source_kind/source_version`记录文档、图谱或教师案例的来源和版本，参考图片使用受保护的`image_url`。版本来自具体来源，不另造一个全库版本号。
 
 ### 学生修正与教师记录
 
 | `kind` | 业务字段 | 写入与效果 |
 | --- | --- | --- |
 | `revision` | `report_id, data, reason, revision_no` | 报告所有者提交完整修正稿及理由；`base_version`是请求参数，不作为记录字段保存。服务端重算分数；规则文字可保存在评分项的 `rule_text/description/rule_description`，组织判断可含 `final_phase/phase_reason`。只影响个人记录。 |
-| `review` | `report_id, decision, comment?, corrected_score?` | 教师/管理员明确复核，decision为confirmed/needs_revision；另存记录并更新报告latest_review与审核状态，原AI数据不变。 |
+| `review` | `report_id, decision, comment, corrected_score?, revision_no, sample_version` | 教师/管理员明确复核，decision为confirmed/needs_revision；绑定当前学生修订及样本快照，另存记录并更新报告latest_review与审核状态，原AI数据不变。 |
 | `feedback` | `report_id, comment` | 教学指导，不自动确认报告。 |
 | `viewed` | `report_id` | 教师已查看事件，不是复核决定。 |
 
-四种记录的实体状态均为 `saved`，所有者是实际提交该记录的账号。当前没有单独的 `reviewed_revision_no` 字段；教师复核记录不是某个学生修订版本的强绑定签名，展示时应保留记录时间并对照修正历史。
+四种记录的实体状态均为 `saved`，所有者是实际提交该记录的账号。复核是否匹配由`revision_no/sample_version`判断；学生保存新修订后报告回到`pending_review`，旧复核仍保留但不能表示确认新稿。旧记录缺少绑定字段时必须重新复核才能创建案例。
 
 ### 练习任务与学生回答
 
@@ -235,7 +235,7 @@ FTS5虚拟表；SQLite自行维护其影子表，业务代码不直接写影子�
 
 ### 评分规则和知识资料
 
-`rubrics` 存 `title, description?, criteria, demo?`，状态 `draft/published`。`criteria` 中四个固定ID各出现一次，`max_score=25`，可带 `rule_text/description`。发布新规则版本不会改写已有报告的规则快照。
+`rubrics` 存 `title, description?, criteria, demo?, is_builtin?, published_at?`，状态 `draft/published`。`criteria` 中四个固定ID各出现一次，`max_score=25`，可带 `rule_text/description`。启动时自动提供内置教学规则，自建已发布规则优先，按发布时间选取。发布新规则版本不会改写已有报告的规则快照。
 
 `documents` 存：
 
@@ -307,3 +307,18 @@ SSE使用 `job_events.seq` 作为id，支持Last-Event-ID或after回放：status
 | `assignment_count/completed_assignment_count` | 选中且当前已发布任务的分配人次/完成的人次，反映当前完成状态，不按完成时间另筛选；学生只计本人 |
 
 `include_demo=false`排除可识别的示例记录，修正的示例归属从原报告判断。所有计数均受权限约束，不采用固定演示数值。普通实体/jobs的API列表才有limit/offset分页，内部统计查询读取全部授权记录，不将第一页误当完整班级。
+
+## 生产流程迁移3
+
+历史demo=true的atlas/documents/rubrics被归档并新增entity_versions快照；samples/reports及原图、知识片段不删除。新增entities_class_records(kind,class_id,created_at,id)支持教师查询。教师列表通过users/classes连接返回owner_name、owner_username、class_name和sample_title，这四项是查询投影，不是新数据库列。教师可见范围先于姓名/账号、班级、学生筛选和limit/offset分页应用。
+
+
+## 迁移4与资料复用
+
+`reference_sources`：id（快照引用编号）、entity_id（atlas/reference-cases实体）、entity_version（发布时实体版本）、kind（atlas/review_case）、file_id（冻结的图片）、snapshot（匿名Source正文与元数据）。entity_id+entity_version唯一，检索要求当前发布实体版本一致；撤回与编辑不改写快照。
+
+`knowledge_fts`同时索引文档片段及参考快照文字，仍使用unicode61配合中文二元词。文档原有片段编号保留。
+
+`reference-cases`实体保存scope（class/public）、case_version（案例系列版本）、报告/复核/样本版本血缘和匿名教学正文。内部approved_data/review_snapshot仅留存审计，不出现在公共API或模型参考内容中。图片通过受保护的案例/快照端点读取，不开放原学生文件入口。
+
+rubrics增加is_builtin/published_at，初始系统规则固定ID为metallography-learning-v1。documents增加deleted状态、deleted_at/deleted_by；复核增加revision_no/sample_version。telemetry沿用现有JSON列，progress历史每个阶段保存最新details和稳定stage_id，详情更新事件继续持久化。

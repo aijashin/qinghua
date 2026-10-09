@@ -152,48 +152,22 @@ func (a *App) ownedImage(r *http.Request, id string) error {
 
 var _ = sql.ErrNoRows
 
-// sampleImage copies an explicitly published atlas image into the student's
-// private storage. The new sample does not depend on atlas publication changes.
+// New practice samples require the user's own upload; shared images are read-only.
 func (a *App) sampleImage(r *http.Request, id string) (string, string, bool, error) {
-	var owner, mt, name, key string
-	var size int64
-	if e := a.Store.DB.QueryRowContext(r.Context(), `SELECT owner_id,mime,name,path,size FROM files WHERE id=?`, id).Scan(&owner, &mt, &name, &key, &size); e != nil {
-		return "", "", false, fmt.Errorf("图片不存在")
+	if err := a.ownedImage(r, id); err != nil {
+		return "", "", false, err
 	}
-	if !strings.HasPrefix(mt, "image/") {
-		return "", "", false, fmt.Errorf("请选择图片")
+	var owner string
+	if err := a.Store.DB.QueryRowContext(r.Context(), `SELECT owner_id FROM files WHERE id=?`, id).Scan(&owner); err != nil || owner != user(r).ID {
+		return "", "", false, fmt.Errorf("新练习请使用本人上传的图片")
 	}
-	if owner == user(r).ID {
-		var source string
-		var demo bool
-		_ = a.Store.DB.QueryRowContext(r.Context(), `SELECT COALESCE(json_extract(data,'$.source_atlas_id'),''),json_extract(data,'$.demo') FROM entities WHERE kind='samples' AND json_extract(data,'$.file_id')=? AND json_extract(data,'$.demo')=1 LIMIT 1`, id).Scan(&source, &demo)
-		return id, source, demo, nil
+	var legacy int
+	err := a.Store.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM entities WHERE kind IN ('samples','atlas') AND json_extract(data,'$.file_id')=? AND json_extract(data,'$.demo')=1`, id).Scan(&legacy)
+	if err != nil {
+		return "", "", false, err
 	}
-	entries, e := a.Store.List(r.Context(), "atlas")
-	if e != nil {
-		return "", "", false, e
+	if legacy > 0 {
+		return "", "", false, fmt.Errorf("历史示例图片不能用于新练习，请上传真实照片")
 	}
-	for _, entry := range entries {
-		if entry.String("status") != "published" || entry.String("file_id") != id {
-			continue
-		}
-		data, e := os.ReadFile(filepath.Join(a.Store.Dir, "files", key))
-		if e != nil {
-			return "", "", false, e
-		}
-		newID := store.ID()
-		if e = os.WriteFile(filepath.Join(a.Store.Dir, "files", newID), data, 0600); e != nil {
-			return "", "", false, e
-		}
-		if _, e = a.Store.DB.ExecContext(r.Context(), `INSERT INTO files VALUES(?,?,?,?,?,?,?)`, newID, user(r).ID, name, mt, size, newID, store.Now()); e != nil {
-			_ = os.Remove(filepath.Join(a.Store.Dir, "files", newID))
-			return "", "", false, e
-		}
-		demo, _ := entry["demo"].(bool)
-		return newID, entry.String("id"), demo, nil
-	}
-	if user(r).Role == "admin" {
-		return id, "", false, nil
-	}
-	return "", "", false, fmt.Errorf("图片不属于你且未发布到图谱库")
+	return id, "", false, nil
 }

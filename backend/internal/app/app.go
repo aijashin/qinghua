@@ -50,6 +50,10 @@ func New(c Config) (*App, error) {
 		return nil, e
 	}
 	a := &App{Store: s, Auth: auth.Service{DB: s.DB}, AI: p, Config: c, loginLimits: map[string][]time.Time{}}
+	if e = a.initializeTeaching(context.Background()); e != nil {
+		s.DB.Close()
+		return nil, e
+	}
 	a.Jobs = jobs.New(s, a.runJob)
 	return a, nil
 }
@@ -85,8 +89,21 @@ func body(w http.ResponseWriter, r *http.Request) (store.Entity, bool) {
 	}
 	return v, true
 }
-func str(m map[string]any, k string) string  { s, _ := m[k].(string); return s }
-func num(m map[string]any, k string) float64 { f, _ := m[k].(float64); return f }
+func str(m map[string]any, k string) string { s, _ := m[k].(string); return s }
+func num(m map[string]any, k string) float64 {
+	switch v := m[k].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		f, _ := v.Float64()
+		return f
+	}
+	return 0
+}
 func (a *App) Handler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]any{"ok": true}) })
@@ -99,7 +116,7 @@ func (a *App) Handler() http.Handler {
 	})
 	reg("POST /api/v1/files", a.upload)
 	reg("GET /api/v1/files/{id}", a.file)
-	for _, kind := range []string{"samples", "learning-sessions", "reports", "practice-tasks", "atlas", "personal-atlas", "documents", "rubrics"} {
+	for _, kind := range []string{"samples", "learning-sessions", "reports", "practice-tasks", "atlas", "personal-atlas", "documents", "rubrics", "reference-cases"} {
 		k := kind
 		reg("GET /api/v1/"+k, func(w http.ResponseWriter, r *http.Request) { a.listEntities(w, r, k) })
 		reg("GET /api/v1/"+k+"/{id}", func(w http.ResponseWriter, r *http.Request) { a.getEntity(w, r, k) })
@@ -144,6 +161,15 @@ func (a *App) Handler() http.Handler {
 	reg("POST /api/v1/admin/rubrics/{id}/publish", a.admin(a.publishRubric))
 	reg("POST /api/v1/admin/documents", a.admin(a.importDocument))
 	reg("POST /api/v1/admin/documents/{id}/publish", a.admin(a.publishDocument))
+	reg("DELETE /api/v1/admin/documents/{id}", a.admin(a.deleteDocument))
+	reg("POST /api/v1/reports/{id}/reference-cases", a.createReferenceCase)
+	reg("GET /api/v1/reference-cases/{id}/image", a.caseImage)
+	reg("PATCH /api/v1/reference-cases/{id}", a.editReferenceCase)
+	reg("POST /api/v1/reference-cases/{id}/publish", a.publishReferenceCase)
+	reg("POST /api/v1/reference-cases/{id}/withdraw", a.withdrawReferenceCase)
+	reg("POST /api/v1/admin/reference-cases/{id}/publish", a.admin(a.publishPublicCase))
+	reg("GET /api/v1/knowledge/sources/{id}", a.referenceSource)
+	reg("GET /api/v1/knowledge/sources/{id}/image", a.referenceImage)
 	reg("GET /api/v1/documents/{id}/chunks", a.documentChunks)
 	reg("GET /api/v1/knowledge/chunks/{id}", a.chunk)
 	reg("GET /api/v1/knowledge/search", a.search)
@@ -303,6 +329,9 @@ func (a *App) load(w http.ResponseWriter, r *http.Request, kind string) (store.E
 	return e, true
 }
 func (a *App) visible(r *http.Request, kind string, e store.Entity) bool {
+	if kind == "reference-cases" {
+		return a.caseVisible(r, e)
+	}
 	if (kind == "atlas" || kind == "rubrics" || kind == "documents") && e.String("status") == "published" {
 		return true
 	}

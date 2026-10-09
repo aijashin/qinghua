@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -100,14 +101,51 @@ func Logger(ctx context.Context) *slog.Logger {
 	return l
 }
 
+type ImageInfo struct {
+	Role   string `json:"role"`
+	MIME   string `json:"mime"`
+	Bytes  int    `json:"bytes"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+type SourceInfo struct {
+	Title   string `json:"title"`
+	Kind    string `json:"source_kind"`
+	Version int    `json:"source_version"`
+}
+type CheckInfo struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// Explicit fields keep prompts, provider text and credentials out of public events.
+type Details struct {
+	Images            []ImageInfo  `json:"images,omitempty"`
+	Sources           []SourceInfo `json:"sources,omitempty"`
+	DocumentCount     *int         `json:"document_count,omitempty"`
+	ReferenceCount    *int         `json:"reference_count,omitempty"`
+	UnavailableImages *int         `json:"unavailable_images,omitempty"`
+	SentAt            string       `json:"sent_at,omitempty"`
+	ResponseAt        string       `json:"response_at,omitempty"`
+	FirstContentMS    *int64       `json:"first_content_ms,omitempty"`
+	ReceivedBytes     *int         `json:"received_bytes,omitempty"`
+	ReceivedChunks    *int         `json:"received_chunks,omitempty"`
+	TimeoutMS         int64        `json:"timeout_ms,omitempty"`
+	Checks            []CheckInfo  `json:"checks,omitempty"`
+	Call              *CallTiming  `json:"call,omitempty"`
+	Saved             bool         `json:"saved,omitempty"`
+}
 type Progress struct {
-	Code      string `json:"code"`
-	Label     string `json:"label"`
-	At        string `json:"at"`
-	ElapsedMS int64  `json:"elapsed_ms"`
-	Attempt   int    `json:"attempt,omitempty"`
-	Completed *int   `json:"completed,omitempty"`
-	Total     *int   `json:"total,omitempty"`
+	StageID   string   `json:"stage_id,omitempty"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
+	Details   *Details `json:"details,omitempty"`
+	Code      string   `json:"code"`
+	Label     string   `json:"label"`
+	At        string   `json:"at"`
+	ElapsedMS int64    `json:"elapsed_ms"`
+	Attempt   int      `json:"attempt,omitempty"`
+	Completed *int     `json:"completed,omitempty"`
+	Total     *int     `json:"total,omitempty"`
 }
 type StageTiming struct {
 	Code       string `json:"code"`
@@ -145,7 +183,7 @@ func (t *Timings) LogValue() slog.Value {
 var labels = map[string]string{"queued": "等待处理", "preparing": "准备图像与任务资料", "retrieving": "检索已发布教学资料", "model_waiting": "等待模型响应", "model_receiving": "正在接收模型输出", "validating": "校验报告结构与依据", "repairing": "修复报告格式", "persisting": "保存分析结果", "extracting": "提取资料正文", "chunking": "整理资料片段", "succeeded": "已完成", "failed": "处理失败", "cancelled": "已取消"}
 
 func NewProgress(code string) Progress {
-	return Progress{Code: code, Label: labels[code], At: time.Now().UTC().Format(time.RFC3339Nano)}
+	return Progress{StageID: ID(), Code: code, Label: labels[code], At: time.Now().UTC().Format(time.RFC3339Nano)}
 }
 
 type Run struct {
@@ -156,6 +194,7 @@ type Run struct {
 	stages        []StageTiming
 	calls         []CallTiming
 	activeCalls   map[int]time.Time
+	lastDetail    time.Time
 	emit          func(Progress) error
 }
 
@@ -205,6 +244,54 @@ func CountStage(ctx context.Context, code string, attempt int, completed, total 
 	Logger(ctx).Info("job.stage", "stage", code, "attempt", attempt, "elapsed_ms", p.ElapsedMS)
 	return nil
 }
+
+// Update changes only the current stage snapshot, never its start time.
+func Update(ctx context.Context, patch Details, force bool) error {
+	scope, _ := ctx.Value(contextKey{}).(*Scope)
+	if scope == nil || scope.run == nil {
+		return ctx.Err()
+	}
+	r := scope.run
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(r.history) == 0 {
+		return nil
+	}
+	now := time.Now()
+	if !force && now.Sub(r.lastDetail) < time.Second {
+		return nil
+	}
+	i := len(r.history) - 1
+	p := r.history[i]
+	merged := map[string]any{}
+	if p.Details != nil {
+		raw, _ := json.Marshal(p.Details)
+		_ = json.Unmarshal(raw, &merged)
+	}
+	raw, _ := json.Marshal(patch)
+	delta := map[string]any{}
+	_ = json.Unmarshal(raw, &delta)
+	for key, value := range delta {
+		merged[key] = value
+	}
+	var details Details
+	raw, _ = json.Marshal(merged)
+	_ = json.Unmarshal(raw, &details)
+	p.Details = &details
+	p.UpdatedAt = now.UTC().Format(time.RFC3339Nano)
+	if r.emit != nil {
+		if err := r.emit(p); err != nil {
+			return err
+		}
+	}
+	r.history[i] = p
+	r.lastDetail = now
+	return nil
+}
+
 func (r *Run) Timings() Timings {
 	r.mu.Lock()
 	defer r.mu.Unlock()

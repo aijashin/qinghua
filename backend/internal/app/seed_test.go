@@ -13,7 +13,7 @@ import (
 	"zhiwei/backend/internal/store"
 )
 
-func SeedDemo(s *store.Store) error {
+func seedDemoFixture(s *store.Store) error {
 	ctx := context.Background()
 	all, e := s.List(ctx, "atlas")
 	if e != nil {
@@ -26,6 +26,7 @@ func SeedDemo(s *store.Store) error {
 		}
 	}
 	rub := defaultRubric()
+	rub["demo"] = true
 	delete(rub, "id")
 	if _, e = s.Create(ctx, "rubrics", "system", "", "published", rub); e != nil {
 		return e

@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,16 +22,40 @@ import (
 )
 
 func defaultRubric() store.Entity {
-	return store.Entity{"id": "teaching-example-v1", "title": "教学示例规则（非国赛官方规则）", "demo": true, "criteria": []any{map[string]any{"id": "scratches", "label": "划痕", "max_score": 25.0}, map[string]any{"id": "artifacts", "label": "假象", "max_score": 25.0}, map[string]any{"id": "etching", "label": "侵蚀程度", "max_score": 25.0}, map[string]any{"id": "clarity", "label": "组织清晰与正确度", "max_score": 25.0}}}
+	return builtinRubric()
 }
 func (a *App) rubric(ctx context.Context) store.Entity {
 	all, _ := a.Store.List(ctx, "rubrics")
+	var best, fallback store.Entity
 	for _, v := range all {
-		if v.String("status") == "published" {
-			return v
+		if v.String("status") != "published" || demoRecord(v) {
+			continue
+		}
+		if v["is_builtin"] == true {
+			fallback = v
+			continue
+		}
+		stamp := v.String("published_at")
+		if stamp == "" {
+			stamp = v.String("created_at")
+		}
+		prior := ""
+		if best != nil {
+			prior = best.String("published_at")
+			if prior == "" {
+				prior = best.String("created_at")
+			}
+		}
+		stampTime, _ := time.Parse(time.RFC3339Nano, stamp)
+		priorTime, _ := time.Parse(time.RFC3339Nano, prior)
+		if best == nil || stampTime.After(priorTime) {
+			best = v
 		}
 	}
-	return defaultRubric()
+	if best != nil {
+		return best
+	}
+	return fallback
 }
 func scoreData(data map[string]any, rubric map[string]any) error {
 	criteria, ok := data["criteria"].([]any)
@@ -133,7 +159,16 @@ func (a *App) createJob(w http.ResponseWriter, r *http.Request) {
 		input = map[string]any{}
 	}
 	input["sample_snapshot"] = sample
-	input["rubric"] = a.rubric(r.Context())
+	if demoRecord(sample) {
+		fail(w, 409, "legacy_demo", "历史示例仅可回顾，请上传真实照片开始新的学习轮次")
+		return
+	}
+	rubric := a.rubric(r.Context())
+	if kind == "assessment" && rubric == nil {
+		fail(w, 409, "rubric_required", "请管理员先创建并发布正式教学评分规则，再开始评图")
+		return
+	}
+	input["rubric"] = rubric
 	if kind == "coaching" {
 		history, goal, err := a.coachingContext(r.Context(), user(r).ID, sample, v.String("learning_session_id"))
 		if err != nil {
@@ -296,7 +331,8 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 		return jobs.Result{}, e
 	}
 	var disabled bool
-	if e := a.Store.DB.QueryRowContext(ctx, `SELECT disabled FROM users WHERE id=?`, j.OwnerID).Scan(&disabled); e != nil || disabled {
+	var ownerRole string
+	if e := a.Store.DB.QueryRowContext(ctx, `SELECT disabled,role FROM users WHERE id=?`, j.OwnerID).Scan(&disabled, &ownerRole); e != nil || disabled {
 		return jobs.Result{}, errors.New("账号不可用，任务已停止")
 	}
 	if j.Kind == "document_import" {
@@ -305,6 +341,15 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 	snapshot, ok := input["sample_snapshot"].(map[string]any)
 	if !ok {
 		return jobs.Result{}, errors.New("样本快照不存在")
+	}
+	if demoRecord(snapshot) {
+		return jobs.Result{}, observability.Coded("legacy_demo", errors.New("历史示例已停用，请上传真实照片重新分析"))
+	}
+	if j.Kind == "assessment" {
+		rubric, _ := input["rubric"].(map[string]any)
+		if rubric == nil || demoRecord(rubric) {
+			return jobs.Result{}, observability.Coded("rubric_required", errors.New("本任务缺少正式教学规则，请管理员发布规则后重新发起评图"))
+		}
 	}
 	fileID := str(snapshot, "file_id")
 	var mime, key, owner string
@@ -315,7 +360,24 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 	if e != nil {
 		return jobs.Result{}, errors.New("图片读取失败")
 	}
-	query := strings.Join([]string{str(snapshot, "material"), str(snapshot, "process"), j.Kind, str(input, "question")}, " ")
+	if j.ClassID != "" && ownerRole != "admin" && !a.member(ctx, j.ClassID, j.OwnerID) {
+		return jobs.Result{}, observability.Coded("class_access_revoked", errors.New("本轮班级访问权限已变更"))
+	}
+	cfg, _, imageErr := image.DecodeConfig(bytes.NewReader(b))
+	if imageErr != nil {
+		return jobs.Result{}, errors.New("样本图片无法解码")
+	}
+	imageInfos := []observability.ImageInfo{{Role: "当前样本", MIME: mime, Bytes: len(b), Width: cfg.Width, Height: cfg.Height}}
+	if e = observability.Update(ctx, observability.Details{Images: imageInfos}, true); e != nil {
+		return jobs.Result{}, e
+	}
+	terms := []string{}
+	for _, text := range []string{str(snapshot, "material"), str(snapshot, "process"), str(input, "student_judgment"), str(input, "question")} {
+		if text != "未知" && text != "" {
+			terms = append(terms, text)
+		}
+	}
+	query := strings.Join(terms, " ")
 	if e = observability.Stage(ctx, "retrieving", 0); e != nil {
 		return jobs.Result{}, e
 	}
@@ -323,6 +385,38 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 	if e != nil {
 		return jobs.Result{}, e
 	}
+	references, err := a.retrieveReferences(ctx, query, j.ClassID)
+	if err != nil {
+		return jobs.Result{}, err
+	}
+	images := []ai.Image{{MIME: mime, Data: b, Label: "当前待分析图片（图1）；所有评分和标注只针对本图"}}
+	unavailable := 0
+	docCount := len(sources)
+	referenceCount := 0
+	for _, source := range references {
+		img, err := a.referenceBytes(ctx, source.ID)
+		if err != nil || len(img.Data) > 10<<20 {
+			unavailable++
+			continue
+		}
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(img.Data))
+		if err != nil {
+			unavailable++
+			continue
+		}
+		images = append(images, img)
+		sources = append(sources, source)
+		referenceCount++
+		imageInfos = append(imageInfos, observability.ImageInfo{Role: "参考图片", MIME: img.MIME, Bytes: len(img.Data), Width: cfg.Width, Height: cfg.Height})
+	}
+	sourceInfos := []observability.SourceInfo{}
+	for _, source := range sources {
+		sourceInfos = append(sourceInfos, observability.SourceInfo{Title: source.Title, Kind: source.Kind, Version: source.Version})
+	}
+	if e = observability.Update(ctx, observability.Details{DocumentCount: &docCount, ReferenceCount: &referenceCount, UnavailableImages: &unavailable, Sources: sourceInfos, Images: imageInfos}, true); e != nil {
+		return jobs.Result{}, e
+	}
+	observability.Logger(ctx).Info("knowledge.retrieved", "document_count", docCount, "reference_count", referenceCount, "unavailable_images", unavailable)
 	safeSample := map[string]any{}
 	for _, key := range []string{"material", "process", "magnification", "etchant", "demo"} {
 		safeSample[key] = snapshot[key]
@@ -338,7 +432,7 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 		safe["practice_goal"] = input["practice_goal"]
 	}
 	payload, _ := json.Marshal(safe)
-	out, e := a.AI.Generate(ctx, ai.Request{Kind: j.Kind, Input: payload, Images: []ai.Image{{MIME: mime, Data: b}}, Sources: sources}, emit)
+	out, e := a.AI.Generate(ctx, ai.Request{Kind: j.Kind, Input: payload, Images: images, Sources: sources}, emit)
 	if e != nil {
 		return jobs.Result{}, e
 	}

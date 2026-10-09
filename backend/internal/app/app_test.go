@@ -204,6 +204,7 @@ func TestDocumentReplacementRetainsHistoricalCitation(t *testing.T) {
 	next, _ := a.Store.Create(ctx, "documents", admin.u.ID, "", "draft", store.Entity{"title": "新资料", "document_version": 2, "replaces_document_id": old.String("id")})
 	_, _ = a.Store.DB.Exec(`INSERT INTO knowledge_chunks VALUES('old-chunk',?,'旧资料','淬火原文',0)`, old.String("id"))
 	_, _ = a.Store.DB.Exec(`INSERT INTO knowledge_fts VALUES('old-chunk','淬火 原文')`)
+	_, _ = a.Store.DB.Exec(`INSERT INTO knowledge_chunks VALUES('new-chunk',?,'新资料','保留观察依据',0)`, next.String("id"))
 	if code, out := admin.call("POST", "/api/v1/admin/documents/"+next.String("id")+"/publish", map[string]any{}); code != 200 {
 		t.Fatal(code, out)
 	}
@@ -223,22 +224,19 @@ func TestDocumentReplacementRetainsHistoricalCitation(t *testing.T) {
 		t.Fatal("archived indexed", found, e)
 	}
 }
-func TestPublicAtlasCopiesImageAndMarksDemo(t *testing.T) {
+func TestLegacyAtlasCannotBeCopiedToNewPractice(t *testing.T) {
 	a, student, _, _ := setup(t)
-	if e := SeedDemo(a.Store); e != nil {
-		t.Fatal(e)
+	if err := seedDemoFixture(a.Store); err != nil {
+		t.Fatal(err)
 	}
-	all, _ := a.Store.List(context.Background(), "atlas")
-	source := all[0]
-	code, sample := student.call("POST", "/api/v1/samples", map[string]any{"file_id": source.String("file_id"), "material": "未知", "process": "未知", "magnification": "未知", "etchant": "未知"})
-	if code != 201 {
-		t.Fatal(code, sample)
+	entries, _ := a.Store.List(context.Background(), "atlas")
+	code, _ := student.call("POST", "/api/v1/samples", map[string]any{"file_id": entries[0].String("file_id"), "material": "未知", "process": "未知", "magnification": "未知", "etchant": "未知"})
+	if code != 400 {
+		t.Fatal("shared example accepted as own upload", code)
 	}
-	if sample["file_id"] == source["file_id"] || sample["demo"] != true {
-		t.Fatal("sample not copied or source marker lost", sample)
-	}
-	if code, _ := student.call("GET", "/api/v1/files/"+sample["file_id"].(string), nil); code != 200 {
-		t.Fatal(code)
+	code, got := student.call("GET", "/api/v1/atlas", nil)
+	if code != 200 || len(got["items"].([]any)) != 0 {
+		t.Fatal("legacy example listed", code, got)
 	}
 }
 func TestTaskResponseDoesNotExposeOtherStudentReflection(t *testing.T) {
@@ -399,7 +397,7 @@ func TestInsightsPeriodRevisionAndAssignmentUnits(t *testing.T) {
 		}
 	}
 }
-func TestAtlasEditingPreservesDemoAndAuthorizesReplacementImage(t *testing.T) {
+func TestAtlasEditingRejectsDemoAndAuthorizesReplacementImage(t *testing.T) {
 	a, s1, _, teacher := setup(t)
 	file := func(owner string) string {
 		id := store.ID()
@@ -410,8 +408,11 @@ func TestAtlasEditingPreservesDemoAndAuthorizesReplacementImage(t *testing.T) {
 		return id
 	}
 	first, second, foreign := file(teacher.u.ID), file(teacher.u.ID), file(s1.u.ID)
-	code, atlas := teacher.call("POST", "/api/v1/atlas", map[string]any{"title": "示意图", "file_id": first, "demo": true})
-	if code != 201 || atlas["demo"] != true {
+	if code, _ := teacher.call("POST", "/api/v1/atlas", map[string]any{"title": "示意图", "file_id": first, "demo": true}); code != 400 {
+		t.Fatal("demo creation accepted", code)
+	}
+	code, atlas := teacher.call("POST", "/api/v1/atlas", map[string]any{"title": "实拍图谱", "file_id": first, "source": "实验室实拍", "demo": false})
+	if code != 201 || atlas["demo"] != false {
 		t.Fatal(code, atlas)
 	}
 	path := "/api/v1/atlas/" + atlas["id"].(string)

@@ -28,7 +28,10 @@ func (a *App) listEntities(w http.ResponseWriter, r *http.Request, kind string) 
 	out := []store.Entity{}
 	q := strings.ToLower(r.URL.Query().Get("q"))
 	for _, v := range all {
-		if !a.visible(r, kind, v) {
+		if kind == "documents" && v.String("status") == "deleted" {
+			continue
+		}
+		if ((kind == "atlas" || kind == "documents" || kind == "rubrics" || kind == "samples" || kind == "learning-sessions" || kind == "personal-atlas") && demoRecord(v)) || !a.visible(r, kind, v) {
 			continue
 		}
 		if sample := r.URL.Query().Get("sample_id"); sample != "" && v.String("sample_id") != sample {
@@ -188,6 +191,10 @@ func (a *App) createSession(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "样本不存在")
 		return
 	}
+	if demoRecord(sample) {
+		fail(w, 409, "legacy_demo", "历史示例仅可回顾，请上传真实照片开始新的学习轮次")
+		return
+	}
 	if parent := v.String("parent_session_id"); parent != "" {
 		p, e := a.Store.Get(r.Context(), "learning-sessions", parent)
 		if e != nil || p.String("owner_id") != user(r).ID {
@@ -305,11 +312,12 @@ func (a *App) reviseReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current["latest_revision"] = rev
+	current["status"] = "pending_review"
 	current["revision_no"] = currentVersion + 1
 	current["version"] = ev + 1
 	current["updated_at"] = store.Now()
 	b, _ := json.Marshal(current)
-	if _, e = tx.ExecContext(r.Context(), `UPDATE entities SET data=?,version=?,updated_at=? WHERE id=?`, string(b), ev+1, store.Now(), old.String("id")); e != nil {
+	if _, e = tx.ExecContext(r.Context(), `UPDATE entities SET data=?,version=?,updated_at=?,status='pending_review' WHERE id=?`, string(b), ev+1, store.Now(), old.String("id")); e != nil {
 		dbError(w, e)
 		return
 	}
@@ -367,15 +375,64 @@ func (a *App) reviewReport(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid_score", "分数超出范围")
 		return
 	}
-	v = copyFields(v, "decision", "comment", "corrected_score")
-	v["report_id"] = old.String("id")
-	rev, e := a.Store.Create(r.Context(), "review", user(r).ID, old.String("class_id"), "saved", v)
+	if strings.TrimSpace(v.String("comment")) == "" {
+		fail(w, 400, "comment_required", "请填写具体复核依据")
+		return
+	}
+	tx, e := a.Store.DB.BeginTx(r.Context(), nil)
 	if e != nil {
 		dbError(w, e)
 		return
 	}
-	_, e = a.Store.Update(r.Context(), "reports", old.String("id"), store.Entity{"status": "reviewed", "latest_review": rev})
-	if e != nil {
+	defer tx.Rollback()
+	var raw string
+	var version int
+	if e = tx.QueryRowContext(r.Context(), `SELECT data,version FROM entities WHERE id=? AND kind='reports'`, old.String("id")).Scan(&raw, &version); e != nil {
+		dbError(w, e)
+		return
+	}
+	var fresh store.Entity
+	_ = json.Unmarshal([]byte(raw), &fresh)
+	// Legacy clients are accepted only if the record has not changed since load.
+	expected := num(old, "revision_no")
+	if value, exists := v["base_revision"]; exists {
+		if n, ok := value.(float64); ok {
+			expected = n
+		} else {
+			fail(w, 400, "invalid_revision", "修订版本须为数字")
+			return
+		}
+	}
+	if expected != num(fresh, "revision_no") {
+		fail(w, 409, "version_conflict", "学生修订已变化，请重新读取后复核")
+		return
+	}
+	rev := copyFields(v, "decision", "comment", "corrected_score")
+	now := store.Now()
+	rev["id"], rev["report_id"], rev["owner_id"], rev["class_id"], rev["version"], rev["status"], rev["created_at"], rev["updated_at"] = store.ID(), old.String("id"), user(r).ID, old.String("class_id"), 1, "saved", now, now
+	rev["revision_no"], rev["sample_version"] = fresh["revision_no"], fresh["sample_version"]
+	if rev["revision_no"] == nil {
+		rev["revision_no"] = 0
+	}
+	rb, _ := json.Marshal(rev)
+	if _, e = tx.ExecContext(r.Context(), `INSERT INTO entities(id,kind,owner_id,class_id,status,data,created_at,updated_at) VALUES(?,'review',?,?,'saved',?,?,?)`, rev.String("id"), user(r).ID, old.String("class_id"), string(rb), now, now); e != nil {
+		dbError(w, e)
+		return
+	}
+	if _, e = tx.ExecContext(r.Context(), `INSERT INTO entity_versions VALUES(?,1,?,?)`, rev.String("id"), string(rb), now); e != nil {
+		dbError(w, e)
+		return
+	}
+	fresh["latest_review"] = rev
+	fresh["status"] = "pending_review"
+	if v.String("decision") == "confirmed" {
+		fresh["status"] = "reviewed"
+	}
+	if e = updateEntityTx(r.Context(), tx, fresh, version); e != nil {
+		dbError(w, e)
+		return
+	}
+	if e = tx.Commit(); e != nil {
 		dbError(w, e)
 		return
 	}
@@ -412,13 +469,6 @@ func (a *App) feedbackReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 201, en)
-}
-func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
-	if user(r).Role == "student" {
-		fail(w, 403, "forbidden", "需要教师权限")
-		return
-	}
-	a.listEntities(w, r, "reports")
 }
 func assigned(t store.Entity, id string) bool {
 	for _, v := range stringsArray(t["assignee_ids"]) {
@@ -635,6 +685,10 @@ func (a *App) createAtlas(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if demoRecord(v) {
+		fail(w, 400, "demo_removed", "不再支持示例图谱，请上传有来源的真实图谱")
+		return
+	}
 	if v.String("title") == "" {
 		fail(w, 400, "title_required", "请填写标题")
 		return
@@ -671,8 +725,16 @@ func (a *App) updateAtlas(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "forbidden", "无权编辑")
 		return
 	}
+	if demoRecord(old) {
+		fail(w, 409, "demo_removed", "历史示例已停用，不能重新发布")
+		return
+	}
 	v, ok := body(w, r)
 	if !ok {
+		return
+	}
+	if demoRecord(v) {
+		fail(w, 400, "demo_removed", "不再支持示例图谱")
 		return
 	}
 	if value, exists := v["demo"]; exists {
@@ -706,8 +768,48 @@ func (a *App) publishAtlas(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	en, e := a.Store.Update(r.Context(), "atlas", old.String("id"), store.Entity{"status": "published"})
+	if demoRecord(old) {
+		fail(w, 409, "demo_removed", "历史示例已停用，不能重新发布")
+		return
+	}
+	if strings.TrimSpace(old.String("title")) == "" || strings.TrimSpace(old.String("source")) == "" || old.String("file_id") == "" {
+		fail(w, 400, "incomplete_atlas", "发布前请补齐图谱标题、真实图片和来源说明")
+		return
+	}
+	if err := a.ownedImage(r, old.String("file_id")); err != nil {
+		fail(w, 400, "invalid_file", err.Error())
+		return
+	}
+	tx, e := a.Store.DB.BeginTx(r.Context(), nil)
 	if e != nil {
+		dbError(w, e)
+		return
+	}
+	defer tx.Rollback()
+	var raw string
+	var version int
+	if e = tx.QueryRowContext(r.Context(), `SELECT data,version FROM entities WHERE id=? AND kind='atlas'`, old.String("id")).Scan(&raw, &version); e != nil {
+		dbError(w, e)
+		return
+	}
+	if float64(version) != num(old, "version") {
+		fail(w, 409, "version_conflict", "图谱已变化，请重新读取")
+		return
+	}
+	var en store.Entity
+	_ = json.Unmarshal([]byte(raw), &en)
+	en["status"] = "published"
+	en["published_at"] = store.Now()
+	en["published_by"] = user(r).ID
+	if e = updateEntityTx(r.Context(), tx, en, version); e != nil {
+		dbError(w, e)
+		return
+	}
+	if e = indexReferenceTx(r.Context(), tx, en, "atlas"); e != nil {
+		fail(w, 400, "invalid_reference", e.Error())
+		return
+	}
+	if e = tx.Commit(); e != nil {
 		dbError(w, e)
 		return
 	}

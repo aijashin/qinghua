@@ -176,7 +176,6 @@ def run(binary):
                'ZHIWEI_AI_MODEL': 'controlled-test-model', 'ZHIWEI_AI_API_KEY': 'controlled-test-key', 'ZHIWEI_COOKIE_SECURE': 'false',
                'ZHIWEI_LOG_LEVEL': 'debug', 'ZHIWEI_LOG_FORMAT': 'text', 'ZHIWEI_LOG_AI_CONTENT': 'true'}
         subprocess.run([str(binary), 'init-admin'], env=env, check=True, stdout=subprocess.DEVNULL)
-        subprocess.run([str(binary), 'seed-demo'], env=env, check=True, stdout=subprocess.DEVNULL)
         log = open(Path(directory) / 'server.log', 'w+')
         process = None
 
@@ -197,7 +196,9 @@ def run(binary):
             process = start()
             admin, student, peer, teacher, outsider = [API(origin) for _ in range(5)]
             admin.login('admin', password)
-            assert not admin.request('GET', '/reports')['items'], 'demo seed must not fabricate AI reports'
+            assert not admin.request('GET', '/reports')['items'], 'fresh application must not contain fabricated reports'
+            rubric = admin.request('POST', '/admin/rubrics', {'title':'受控验收规则','description':'仅存在于隔离测试库', 'criteria':[{'id':key,'label':label,'max_score':25,'rule_text':'受控测试观察尺度'} for key,label in [('scratches','划痕'),('artifacts','假象'),('etching','侵蚀程度'),('clarity','组织清晰与正确度')]]})
+            admin.request('POST', '/admin/rubrics/' + rubric['id'] + '/publish', {})
             people = {}
             for name, role in [('student-a', 'student'), ('student-b', 'student'), ('teacher-a', 'teacher'), ('teacher-b', 'teacher')]:
                 people[name] = admin.request('POST', '/admin/users', {'username': name, 'password': password, 'display_name': name, 'role': role})

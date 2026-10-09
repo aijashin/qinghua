@@ -166,8 +166,11 @@ func validateAssessment(req Request, raw json.RawMessage) (json.RawMessage, erro
 
 func validateUnderstanding(req Request, raw json.RawMessage) (json.RawMessage, error) {
 	var report Understanding
-	if decodeStrict(raw, &report) != nil || require(raw, "summary", "candidates", "dimensions", "questions", "limitations", "citations") != nil {
-		return nil, invalid("$", "schema_invalid_or_required_field_missing")
+	if err := decodeStrict(raw, &report); err != nil {
+		return nil, schemaDiagnostic(err)
+	}
+	if require(raw, "summary", "candidates", "dimensions", "questions", "limitations", "citations") != nil {
+		return nil, invalid("$", "required_field_missing")
 	}
 	if !validText(report.Summary, 6000) {
 		return nil, invalid("summary", "nonempty_text_required")
@@ -209,8 +212,11 @@ func validateUnderstanding(req Request, raw json.RawMessage) (json.RawMessage, e
 
 func validateCoaching(req Request, raw json.RawMessage) (json.RawMessage, error) {
 	var report Coaching
-	if decodeStrict(raw, &report) != nil || require(raw, "summary", "questions", "suggestions", "verification_plan", "limitations", "citations") != nil {
-		return nil, invalid("$", "schema_invalid_or_required_field_missing")
+	if err := decodeStrict(raw, &report); err != nil {
+		return nil, schemaDiagnostic(err)
+	}
+	if require(raw, "summary", "questions", "suggestions", "verification_plan", "limitations", "citations") != nil {
+		return nil, invalid("$", "required_field_missing")
 	}
 	if !validText(report.Summary, 6000) {
 		return nil, invalid("summary", "nonempty_text_required")
@@ -302,6 +308,23 @@ func decodeStrict(raw []byte, v any) error {
 		return ErrInvalidResponse
 	}
 	return nil
+}
+
+// Only fixed schema paths and reason codes enter diagnostics or repair prompts.
+// Never include raw decoder errors, which can contain untrusted field names.
+func schemaDiagnostic(err error) error {
+	var fieldType *json.UnmarshalTypeError
+	if errors.As(err, &fieldType) {
+		path := fieldType.Field
+		if path == "" {
+			path = "$"
+		}
+		return invalid(path, "incorrect_json_type")
+	}
+	if strings.HasPrefix(err.Error(), "json: unknown field ") {
+		return invalid("$", "unknown_field")
+	}
+	return invalid("$", "schema_invalid")
 }
 
 func require(raw []byte, keys ...string) error {

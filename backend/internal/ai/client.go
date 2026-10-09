@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -36,7 +37,7 @@ func New(config Config) (*Client, error) {
 	config.Model = strings.TrimSpace(config.Model)
 	config.APIKey = strings.TrimSpace(config.APIKey)
 	if config.Timeout <= 0 {
-		config.Timeout = 120 * time.Second
+		config.Timeout = 300 * time.Second
 	}
 	c := &Client{config: config}
 	if config.BaseURL != "" {
@@ -56,7 +57,7 @@ func New(config Config) (*Client, error) {
 		c.endpoint = u.String()
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = min(config.Timeout, 60*time.Second)
+	transport.ResponseHeaderTimeout = config.Timeout
 	c.http = &http.Client{
 		Transport: transport,
 		Timeout:   config.Timeout,
@@ -86,6 +87,10 @@ func (c *Client) Model() string {
 func (c *Client) Generate(ctx context.Context, req Request, progress func(string) error) (output json.RawMessage, resultErr error) {
 	defer func() {
 		if resultErr != nil {
+			var timeout *TimeoutError
+			if errors.Is(resultErr, context.DeadlineExceeded) && !errors.As(resultErr, &timeout) {
+				resultErr = &TimeoutError{Limit: 2 * c.config.Timeout}
+			}
 			resultErr = observability.Coded(errorCode(resultErr), resultErr)
 		}
 	}()
@@ -95,7 +100,7 @@ func (c *Client) Generate(ctx context.Context, req Request, progress func(string
 	if err := validateRequest(req); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.config.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, 2*c.config.Timeout)
 	defer cancel()
 	if err := emit(progress, "正在读取图像与已发布教学资料"); err != nil {
 		return nil, err
@@ -125,6 +130,32 @@ func (c *Client) Generate(ctx context.Context, req Request, progress func(string
 		}
 		validationStarted := time.Now()
 		validated, err := Validate(req, raw)
+		checks := []observability.CheckInfo{}
+		for _, name := range []string{"报告字段与结构", "分数与评分项目", "标注坐标范围", "引用来源"} {
+			status := "passed"
+			if err != nil {
+				status = "not_checked"
+				path, _ := diagnostic(err)
+				target := "报告字段与结构"
+				if strings.Contains(path, "bbox") {
+					target = "标注坐标范围"
+				} else if strings.Contains(path, "criteria") {
+					target = "分数与评分项目"
+				} else if strings.Contains(path, "citations") {
+					target = "引用来源"
+				}
+				if name == target {
+					status = "failed"
+				}
+			}
+			if name == "分数与评分项目" && req.Kind != "assessment" {
+				status = "not_applicable"
+			}
+			checks = append(checks, observability.CheckInfo{Name: name, Status: status})
+		}
+		if updateErr := observability.Update(ctx, observability.Details{Checks: checks}, true); updateErr != nil {
+			return nil, updateErr
+		}
 		if err != nil {
 			path, reason := diagnostic(err)
 			observability.Logger(ctx).Debug("ai.validation", "call_id", callID, "attempt", attempt+1, "valid", false, "path", path, "reason", reason, "duration_ms", time.Since(validationStarted).Milliseconds())
@@ -155,7 +186,7 @@ func (c *Client) Generate(ctx context.Context, req Request, progress func(string
 		// source evidence, and no additional tool permissions.
 		messages = append(messages,
 			message{Role: "assistant", Content: string(raw)},
-			message{Role: "user", Content: "上一个输出未通过严格结构校验。仅修复为 system 定义的 JSON：不得增加字段，所有必填字段必须存在；四项分数为 0 至 25 或 null，dimensions 必须覆盖五个维度且带 basis；citations 仅可取实际 sources 中的 ID，可为空数组。不要编造新证据或为了填分数放弃不确定性。返回完整 JSON。"},
+			message{Role: "user", Content: repairMessage(req.Kind, err)},
 		)
 	}
 	return nil, ErrInvalidResponse
@@ -199,12 +230,25 @@ type message struct {
 }
 
 func (c *Client) complete(ctx context.Context, messages []message, progress func(string) error, attempt int, callID string) (output json.RawMessage, resultErr error) {
+	ctx, cancel := context.WithTimeout(ctx, c.config.Timeout)
+	defer cancel()
 	started := time.Now()
+	responseAt := ""
+	if err := observability.Update(ctx, observability.Details{SentAt: started.UTC().Format(time.RFC3339Nano), TimeoutMS: c.config.Timeout.Milliseconds()}, true); err != nil {
+		return nil, err
+	}
 	observability.BeginCall(ctx, attempt, started)
 	stats := &callStats{started: started, onContent: func() error {
 		observability.FirstContent(ctx, attempt, time.Since(started).Milliseconds())
-		return observability.Stage(ctx, "model_receiving", attempt)
+		if err := observability.Stage(ctx, "model_receiving", attempt); err != nil {
+			return err
+		}
+		ms := time.Since(started).Milliseconds()
+		return observability.Update(ctx, observability.Details{FirstContentMS: &ms, SentAt: started.UTC().Format(time.RFC3339Nano), ResponseAt: responseAt}, true)
 	}}
+	stats.onDelta = func(bytes, chunks int, force bool) error {
+		return observability.Update(ctx, observability.Details{ReceivedBytes: &bytes, ReceivedChunks: &chunks}, force)
+	}
 	logger := observability.Logger(ctx).With("call_id", callID, "attempt", attempt)
 	endpoint, _ := url.Parse(c.endpoint)
 	logger.Info("ai.call.started", "provider_host", observability.Redact(endpoint.Host, c.config.APIKey), "provider_path", observability.Redact(endpoint.Path, c.config.APIKey), "model", observability.Redact(c.config.Model, c.config.APIKey))
@@ -212,6 +256,11 @@ func (c *Client) complete(ctx context.Context, messages []message, progress func
 	defer func() {
 		timing := stats.timing(attempt)
 		observability.RecordCall(ctx, timing)
+		if resultErr == nil {
+			if err := observability.Update(ctx, observability.Details{Call: &timing, ReceivedBytes: &stats.receivedBytes, ReceivedChunks: &stats.receivedChunks}, true); err != nil {
+				resultErr = err
+			}
+		}
 		logger.Info("ai.call.finished", "duration_ms", timing.DurationMS, "first_content_ms", optionalCount(timing.FirstContentMS), "finish_reason", stats.finishReason, "error_code", errorCode(resultErr), "input_tokens", optionalCount(timing.InputTokens), "output_tokens", optionalCount(timing.OutputTokens), "total_tokens", optionalCount(timing.TotalTokens))
 		if len(output) > 0 {
 			observability.Content(ctx, callID, attempt, "response", string(output), c.config.APIKey)
@@ -258,11 +307,22 @@ func (c *Client) complete(ctx context.Context, messages []message, progress func
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
 		if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, &TimeoutError{Limit: c.config.Timeout}
+			}
 			return nil, ctx.Err()
+		}
+		var timeout net.Error
+		if errors.As(err, &timeout) && timeout.Timeout() {
+			return nil, &TimeoutError{Limit: c.config.Timeout, Connection: true}
 		}
 		return nil, ErrProvider
 	}
 	defer resp.Body.Close()
+	responseAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := observability.Update(ctx, observability.Details{ResponseAt: responseAt}, true); err != nil {
+		return nil, err
+	}
 	logger.Info("ai.http.response", "status", resp.StatusCode, "elapsed_ms", time.Since(started).Milliseconds())
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Provider responses can echo credentials, full prompts and image
@@ -276,6 +336,9 @@ func (c *Client) complete(ctx context.Context, messages []message, progress func
 		raw, err = readCompletion(resp.Body, progress, stats)
 	}
 	if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, &TimeoutError{Limit: c.config.Timeout}
+		}
 		return nil, ctx.Err()
 	}
 	return raw, err
@@ -331,6 +394,9 @@ func readCompletion(reader io.Reader, progress func(string) error, stats *callSt
 		return nil, ErrTruncated
 	}
 	if err := stats.content(); err != nil {
+		return nil, err
+	}
+	if err := stats.receive(choice.Message.Content, true); err != nil {
 		return nil, err
 	}
 	if err := emit(progress, "模型已返回图像分析，正在校验"); err != nil {
@@ -389,6 +455,11 @@ func readStream(reader io.Reader, progress func(string) error, stats *callStats)
 				}
 			}
 		}
+		if choice.Delta.Content != "" {
+			if err := stats.receive(choice.Delta.Content, false); err != nil {
+				return err
+			}
+		}
 		if choice.FinishReason != nil {
 			if err := finishError(choice.FinishReason); err != nil {
 				return err
@@ -424,6 +495,9 @@ func readStream(reader io.Reader, progress func(string) error, stats *callStats)
 	}
 	if strings.TrimSpace(content.String()) == "" {
 		return nil, ErrInvalidResponse
+	}
+	if err := stats.receive("", true); err != nil {
+		return nil, err
 	}
 	return json.RawMessage(content.String()), nil
 }

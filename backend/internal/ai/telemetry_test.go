@@ -68,8 +68,12 @@ func TestMeasuredCallRepairProgressUsageAndPrivateTerminalLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	codes := []string{}
+	seenStages := map[string]bool{}
 	for _, event := range events {
-		codes = append(codes, event.Code)
+		if !seenStages[event.StageID] {
+			codes = append(codes, event.Code)
+			seenStages[event.StageID] = true
+		}
 	}
 	if got := strings.Join(codes, ","); got != "model_waiting,model_receiving,validating,repairing,model_waiting,model_receiving,validating" {
 		t.Fatal(got)

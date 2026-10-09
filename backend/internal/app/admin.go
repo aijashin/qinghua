@@ -180,6 +180,17 @@ func (a *App) createRubric(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if demoRecord(v) {
+		fail(w, 400, "demo_removed", "不再支持示例规则，请填写正式教学评分依据")
+		return
+	}
+	if value, exists := v["demo"]; exists {
+		if _, ok := value.(bool); !ok {
+			fail(w, 400, "invalid_demo", "规则来源标志须为布尔值，不能创建示例规则")
+			return
+		}
+	}
+	v["demo"] = false
 	criteria, yes := v["criteria"].([]any)
 	if !yes || len(criteria) != 4 || v.String("title") == "" {
 		fail(w, 400, "invalid_rubric", "请填写标题与评分项目")
@@ -192,6 +203,10 @@ func (a *App) createRubric(w http.ResponseWriter, r *http.Request) {
 		c, ok := x.(map[string]any)
 		if !ok || str(c, "id") == "" || str(c, "label") == "" || len([]rune(str(c, "label"))) > 150 || num(c, "max_score") != 25 || !expected[str(c, "id")] || seen[str(c, "id")] {
 			fail(w, 400, "invalid_rubric", "本版规则必须使用划痕/假象/侵蚀/清晰度四项固定ID，各25分")
+			return
+		}
+		if strings.TrimSpace(effectiveRuleText(c, nil)) == "" {
+			fail(w, 400, "invalid_rubric", "每项正式规则须填写可观察证据与评分尺度")
 			return
 		}
 		seen[str(c, "id")] = true
@@ -214,7 +229,23 @@ func (a *App) publishRubric(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	en, e := a.Store.Update(r.Context(), "rubrics", old.String("id"), store.Entity{"status": "published"})
+	if demoRecord(old) {
+		fail(w, 409, "demo_removed", "历史示例规则已停用，请创建真实教学规则")
+		return
+	}
+	criteria, _ := old["criteria"].([]any)
+	for _, item := range criteria {
+		rule, _ := item.(map[string]any)
+		if strings.TrimSpace(effectiveRuleText(rule, nil)) == "" {
+			fail(w, 400, "invalid_rubric", "每项正式规则须填写可观察证据与评分尺度，请创建完整的新版本")
+			return
+		}
+	}
+	if old.String("status") == "published" {
+		respond(w, 200, old)
+		return
+	}
+	en, e := a.Store.Update(r.Context(), "rubrics", old.String("id"), store.Entity{"status": "published", "published_at": store.Now()})
 	if e != nil {
 		dbError(w, e)
 		return
@@ -287,6 +318,26 @@ func (a *App) publishDocument(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	v, valid := body(w, r)
+	if !valid {
+		return
+	}
+	if expected, exists := v["base_version"]; exists && expected != old["version"] {
+		fail(w, 409, "version_conflict", "资料已更新，请重新预览后发布")
+		return
+	}
+	if old.String("status") == "deleted" || old.String("status") == "archived" {
+		fail(w, 409, "document_unavailable", "已删除或归档资料不能重新发布")
+		return
+	}
+	if num(old, "chunk_count") == 0 {
+		var count int
+		_ = a.Store.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM knowledge_chunks WHERE document_id=?`, old.String("id")).Scan(&count)
+		if count == 0 {
+			fail(w, 400, "empty_document", "没有可发布文本")
+			return
+		}
+	}
 	if old.String("status") == "published" {
 		respond(w, 200, old)
 		return
@@ -305,6 +356,14 @@ func (a *App) publishDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var document store.Entity
 	_ = json.Unmarshal([]byte(raw), &document)
+	if document.String("status") == "deleted" || document.String("status") == "archived" {
+		fail(w, 409, "document_unavailable", "资料已经停用")
+		return
+	}
+	if float64(version) != num(old, "version") {
+		fail(w, 409, "version_conflict", "资料版本已变化")
+		return
+	}
 	if predecessor := document.String("replaces_document_id"); predecessor != "" {
 		var priorRaw string
 		var priorVersion int
@@ -323,6 +382,7 @@ func (a *App) publishDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	document["status"] = "published"
 	document["published_at"] = store.Now()
+	document["published_by"] = user(r).ID
 	if document.String("series_id") == "" {
 		document["series_id"] = document.String("id")
 	}
@@ -370,28 +430,48 @@ func (a *App) search(w http.ResponseWriter, r *http.Request) {
 		dbError(w, e)
 		return
 	}
-	out := []map[string]any{}
-	for _, source := range sources {
-		var documentID, rawMetadata string
-		var version int
-		if e := a.Store.DB.QueryRowContext(r.Context(), `SELECT c.document_id,COALESCE(json_extract(d.data,'$.document_version'),1),d.data FROM knowledge_chunks c JOIN entities d ON d.id=c.document_id WHERE c.id=?`, source.ID).Scan(&documentID, &version, &rawMetadata); e != nil {
-			dbError(w, e)
-			return
-		}
-		var metadata store.Entity
-		if e := json.Unmarshal([]byte(rawMetadata), &metadata); e != nil {
-			dbError(w, e)
-			return
-		}
-		item := map[string]any{"id": source.ID, "title": source.Title, "content": source.Content, "document_id": documentID, "document_version": version}
-		for _, key := range knowledgeTagKeys {
-			item[key] = stringsArray(metadata[key])
-		}
-		out = append(out, item)
+	classID := r.URL.Query().Get("class_id")
+	if classID != "" && !a.validClass(r, classID) {
+		fail(w, 403, "forbidden", "无权检索该班级资料")
+		return
 	}
+	references, err := a.retrieveReferencesWithFilters(r.Context(), r.URL.Query().Get("q"), classID, filters)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	for _, source := range references {
+		matches := true
+		for _, pair := range []struct {
+			key  string
+			tags []string
+		}{{"material_tag", source.MaterialTags}, {"phase_tag", source.PhaseTags}, {"process_tag", source.ProcessTags}} {
+			if expected := filters[pair.key]; expected != "" {
+				found := false
+				for _, tag := range pair.tags {
+					if strings.EqualFold(tag, expected) {
+						found = true
+					}
+				}
+				if !found {
+					matches = false
+				}
+			}
+		}
+		if matches {
+			sources = append(sources, source)
+		}
+	}
+	out := sources
 	respond(w, 200, map[string]any{"items": out})
 }
 func (a *App) chunk(w http.ResponseWriter, r *http.Request) {
+	var referenceCount int
+	_ = a.Store.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM reference_sources WHERE id=?`, r.PathValue("id")).Scan(&referenceCount)
+	if referenceCount > 0 {
+		a.referenceSource(w, r)
+		return
+	}
 	var id, doc, title, content string
 	e := a.Store.DB.QueryRowContext(r.Context(), `SELECT id,document_id,title,content FROM knowledge_chunks WHERE id=?`, r.PathValue("id")).Scan(&id, &doc, &title, &content)
 	if e != nil {
@@ -419,7 +499,11 @@ func (a *App) chunk(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "引用片段不存在")
 		return
 	}
-	respond(w, 200, map[string]any{"id": id, "title": title, "content": content, "document_id": doc})
+	version := num(en, "document_version")
+	if version == 0 {
+		version = 1
+	}
+	respond(w, 200, map[string]any{"id": id, "title": title, "content": content, "document_id": doc, "document_version": version, "source_kind": "document", "source_version": version})
 }
 func (a *App) insights(w http.ResponseWriter, r *http.Request) {
 	var from, to time.Time

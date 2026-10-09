@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
@@ -86,11 +87,11 @@ func (a *App) retrieveWithTags(ctx context.Context, text string, filters map[str
 	if query == "" && len(filters) == 0 {
 		return out, nil
 	}
-	sqlText := `SELECT c.id,c.title,c.content FROM knowledge_chunks c JOIN entities d ON d.id=c.document_id`
+	sqlText := `SELECT c.id,c.title,c.content,c.document_id,d.data FROM knowledge_chunks c JOIN entities d ON d.id=c.document_id`
 	if query != "" {
 		sqlText += ` JOIN knowledge_fts f ON f.chunk_id=c.id`
 	}
-	sqlText += ` WHERE d.kind='documents' AND d.status='published'`
+	sqlText += ` WHERE d.kind='documents' AND d.status='published' AND COALESCE(json_extract(d.data,'$.demo'),0)!=1`
 	args := []any{}
 	if query != "" {
 		sqlText += ` AND knowledge_fts MATCH ?`
@@ -114,9 +115,21 @@ func (a *App) retrieveWithTags(ctx context.Context, text string, filters map[str
 	defer rows.Close()
 	for rows.Next() {
 		var source ai.Source
-		if err := rows.Scan(&source.ID, &source.Title, &source.Content); err != nil {
+		var metadata string
+		if err := rows.Scan(&source.ID, &source.Title, &source.Content, &source.DocumentID, &metadata); err != nil {
 			return nil, err
 		}
+		var document store.Entity
+		_ = json.Unmarshal([]byte(metadata), &document)
+		source.Kind = "document"
+		source.DocumentVersion = int(num(document, "document_version"))
+		if source.DocumentVersion == 0 {
+			source.DocumentVersion = 1
+		}
+		source.Version = source.DocumentVersion
+		source.MaterialTags = stringsArray(document["material_tags"])
+		source.PhaseTags = stringsArray(document["phase_tags"])
+		source.ProcessTags = stringsArray(document["process_tags"])
 		out = append(out, source)
 	}
 	return out, rows.Err()

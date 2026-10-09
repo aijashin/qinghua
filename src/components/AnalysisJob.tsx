@@ -1,6 +1,7 @@
+import { AnalysisProgress } from './AnalysisProgress'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, CircleSlash, FlaskConical, LoaderCircle, RefreshCw, X } from 'lucide-react'
-import { errorMessage, jobEvents, list, request, type Job, type JobProgress, type LearningSession, type Report, type Sample } from '../api'
+import { FlaskConical, LoaderCircle, RefreshCw } from 'lucide-react'
+import { errorMessage, jobError, jobEvents, list, request, type Job, type JobProgress, type LearningSession, type Report, type Sample } from '../api'
 import { Badge, Button, Disclosure, Empty, Loading, Message, Panel } from './WorkbenchUI'
 import { elapsedText, mergeProgress } from './reportPresentation'
 
@@ -40,7 +41,7 @@ function AnalysisJob({ sample, session, kind, configured, onComplete, label, inp
     latestJob.current = record
     setJob(current => current?.id === record.id && ['succeeded', 'failed', 'cancelled'].includes(current.status) && ['queued', 'running'].includes(record.status) ? current : record)
     setProgress(items => mergeProgress(items, [...(record.progress_history || []), ...(record.progress ? [record.progress] : [])]))
-    if (record.status === 'failed') setError(record.error || '分析未完成，请重试。')
+    if (record.status === 'failed') setError(jobError(record))
     if (record.status === 'succeeded') void loadResult(record)
   }, [loadResult])
 
@@ -89,12 +90,14 @@ function AnalysisJob({ sample, session, kind, configured, onComplete, label, inp
     try { receive(await request<Job>(`/jobs/${job.id}/cancel`, { method: 'POST' })) } catch (err) { if (mounted.current) setError(errorMessage(err)) } finally { if (mounted.current) setCancelling(false) }
   }
   const latest = progress.at(-1)
-  const elapsed = active && job ? Math.max(0, now - Date.parse(job.started_at || job.created_at)) : job?.timings?.total_ms
-  const timeline = <ol className="progress-timeline">{progress.map((item, index) => <li key={`${item.code}:${item.at}:${item.attempt || 0}`} className={item.code === 'failed' || item.code === 'cancelled' ? item.code : active && index === progress.length - 1 ? 'current' : 'complete'}><span className="progress-dot" aria-hidden="true">{item.code === 'failed' ? <X size={13} /> : item.code === 'cancelled' ? <CircleSlash size={13} /> : active && index === progress.length - 1 ? <LoaderCircle size={13} className="spin" /> : <Check size={12} />}</span><span className="progress-label">{item.label}{item.attempt && item.attempt > 1 ? ` · 第 ${item.attempt} 次调用` : ''}</span><time className="progress-time" dateTime={item.at} title={new Date(item.at).toLocaleString('zh-CN')}>{elapsedText(item.elapsed_ms)}</time></li>)}</ol>
+  const elapsed = active && job ? Math.max(0, now - Date.parse(job.created_at)) : typeof job?.timings?.total_ms === 'number' ? job.timings.total_ms + (job.timings.queue_ms || 0) : undefined
+  const timeline = job ? <AnalysisProgress progress={progress} job={job} now={now} /> : null
+  const stageElapsed = latest ? Math.max(0, now - Date.parse(latest.at)) : 0
+
   return <div className="analysis-job">
     {!configured && <Message kind="info">AI 服务待配置，当前可保存样本与学习记录。</Message>}
     {error && <Message>{error}</Message>}
-    {restoring ? <div className="analysis-restoring"><Loading text="正在恢复分析状态…" /></div> : restoreFailed ? <Button variant="secondary" onClick={() => { setRestoring(true); setRestoreAttempt(value => value + 1) }}><RefreshCw size={15} />重新读取任务状态</Button> : active ? <section className="analysis-progress" aria-label="分析进度" aria-busy="true"><div className="analysis-progress-head"><div><h3 aria-live="polite"><LoaderCircle className="spin" size={17} />{latest?.label || job.stage || '正在处理'}</h3><div className="analysis-progress-meta">{job.status === 'queued' ? '已等待' : '已进行'} {elapsedText(elapsed || 0)}</div></div><Button variant="secondary" disabled={cancelling} onClick={cancel}>{cancelling ? '正在取消…' : '取消分析'}</Button></div>{progress.length ? timeline : <p>{legacyMessage || '等待服务更新任务进度。'}</p>}{connection && <p className="progress-connection" role="status">{connection}</p>}</section> : <div className="row space-bottom"><Button variant={job?.status === 'succeeded' ? 'secondary' : 'primary'} onClick={start} disabled={busy || resultLoading || !configured}>{busy ? <LoaderCircle size={15} className="spin" /> : <FlaskConical size={16} />}{job?.status === 'failed' || job?.status === 'cancelled' ? '重新分析' : label}</Button>{job?.status === 'succeeded' && <Badge tone="green">分析完成</Badge>}{job?.status === 'cancelled' && <Badge tone="amber">已取消</Badge>}</div>}
+    {restoring ? <div className="analysis-restoring"><Loading text="正在恢复分析状态…" /></div> : restoreFailed ? <Button variant="secondary" onClick={() => { setRestoring(true); setRestoreAttempt(value => value + 1) }}><RefreshCw size={15} />重新读取任务状态</Button> : active ? <section className="analysis-progress" aria-label="分析进度" aria-busy="true"><div className="analysis-progress-head"><div><h3 aria-live="polite"><LoaderCircle className="spin" size={17} />{latest?.label || job.stage || '正在处理'}</h3><div className="analysis-progress-meta"><span>本轮已用 {elapsedText(elapsed || 0)}</span><span>当前阶段 {elapsedText(stageElapsed)}</span></div></div><Button variant="secondary" disabled={cancelling} onClick={cancel}>{cancelling ? '正在取消…' : '取消分析'}</Button></div>{progress.length ? timeline : <p>{legacyMessage || '等待服务更新任务进度。'}</p>}{connection && <p className="progress-connection" role="status">{connection}</p>}</section> : <div className="row space-bottom"><Button variant={job?.status === 'succeeded' ? 'secondary' : 'primary'} onClick={start} disabled={busy || resultLoading || !configured}>{busy ? <LoaderCircle size={15} className="spin" /> : <FlaskConical size={16} />}{job?.status === 'failed' || job?.status === 'cancelled' ? '重新分析' : label}</Button>{job?.status === 'succeeded' && <Badge tone="green">分析完成</Badge>}{job?.status === 'cancelled' && <Badge tone="amber">已取消</Badge>}</div>}
     {!active && progress.length > 0 && <Disclosure title="本次分析过程" meta={typeof elapsed === 'number' ? elapsedText(elapsed) : undefined}>{timeline}</Disclosure>}
     {active && awaitingReport && <div className="analysis-skeleton" role="status">完整结果将在分析与校验完成后显示。</div>}
     {!restoring && !restoreFailed && !active && !resultLoading && !resultError && awaitingReport && job?.status !== 'succeeded' && <Panel><Empty title="尚未生成分析结果">开始分析后，可查看实时进度。</Empty></Panel>}

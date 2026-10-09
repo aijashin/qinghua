@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const PromptVersion = "metallography-v2"
+const PromptVersion = "metallography-v4"
 
 var (
 	ErrNotConfigured   = errors.New("AI 尚未配置，请配置独立模型地址、模型名称及所需密钥")
@@ -27,14 +27,23 @@ type Config struct {
 }
 
 type Image struct {
-	MIME string `json:"mime"`
-	Data []byte `json:"-"`
+	MIME  string `json:"mime"`
+	Data  []byte `json:"-"`
+	Label string `json:"label,omitempty"`
 }
 
 type Source struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Content         string   `json:"content"`
+	Kind            string   `json:"source_kind,omitempty"`
+	Version         int      `json:"source_version,omitempty"`
+	DocumentID      string   `json:"document_id,omitempty"`
+	DocumentVersion int      `json:"document_version,omitempty"`
+	ImageURL        string   `json:"image_url,omitempty"`
+	MaterialTags    []string `json:"material_tags,omitempty"`
+	PhaseTags       []string `json:"phase_tags,omitempty"`
+	ProcessTags     []string `json:"process_tags,omitempty"`
 }
 
 type Request struct {

@@ -182,6 +182,9 @@ func (a *App) completeAssignment(ctx context.Context, id, userID, reflection str
 }
 
 func publicEntity(role, userID, kind string, e store.Entity) store.Entity {
+	if kind == "reference-cases" {
+		return publicCase(e)
+	}
 	if role != "student" || kind != "practice-tasks" {
 		return e
 	}

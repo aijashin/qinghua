@@ -15,7 +15,12 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { BackgroundField, ResultMeta, PageTitle } from './src/components/WorkbenchUI'
 import { AssessmentView, SampleImage, SampleEditor, StepPath, ReportDetail } from './src/components/LearningWorkspace'
-import { jobEvents } from './src/api'
+import { TeacherSubmissions } from './src/components/TeacherSubmissions'
+import { LibraryView } from './src/components/StudentRecords'
+import { UnderstandingEditor } from './src/components/LearningEditors'
+import { AnalysisProgress } from './src/components/AnalysisProgress'
+import { mergeProgress } from './src/components/reportPresentation'
+import { jobEvents, jobError } from './src/api'
 const render = element => renderToStaticMarkup(element)
 const sample = { id: 's1', owner_id: 'u1', file_id: 'image1', title: '界面测试样本', material: '自定义合金 123', process: '未知', magnification: '123×', etchant: '自定义腐蚀剂', status: 'draft', version: 1, created_at: '2026-10-08T02:00:00Z', updated_at: '2026-10-08T02:00:00Z' }
 const criteria = ['划痕','假象','侵蚀程度','组织清晰与正确度'].map((label,index) => ({ id: 'c'+index, label, score: index === 0 ? null : 20, max_score: 25, evidence: index === 0 ? '此项证据不足' : '测试观察依据', rule_text: '测试规则' }))
@@ -39,10 +44,25 @@ assert(field.includes('自定义合金 123'), 'custom historical value must surv
 assert(field.includes('aria-labelledby'), 'background field requires accessible label relationship')
 const editor = render(<SampleEditor sample={sample} onSaved={async()=>{}} onStart={()=>{}} clearParent={()=>{}}/> )
 assert(editor.includes('自定义合金 123') && editor.includes('123×') && editor.includes('自定义腐蚀剂'), 'saved arbitrary background values must be preserved')
+assert(!editor.includes('选择示例') && !editor.includes('示例图谱'), 'sample editor must only offer actual uploads')
+const teacher = render(<TeacherSubmissions classId="a" classes={[{id:'a',name:'材料一班',members:[{id:'student-uuid',username:'s01',display_name:'王同学',role:'student'}]}]} refreshKey={0} onOpen={()=>{}}/> )
+assert(teacher.includes('王同学（s01）') && teacher.includes('学生姓名或账号'), 'teacher filters must expose real identity and name search')
+assert(render(<LibraryView onResume={()=>{}}/>).includes('见微知著'), 'atlas library must display the requested new name')
+assert(!jobError({error:'context deadline exceeded',status:'failed'}).includes('context deadline'), 'legacy timeout errors must be readable')
 const steps = render(<StepPath current="atlas" sample={null} reports={[]} onChange={()=>{}}/> )
 assert.equal((steps.match(/disabled=""/g)||[]).length,3,'later steps require a saved sample')
 const title = render(<PageTitle label="DECORATIVE_LABEL" title="组织图谱"/> )
 assert(!title.includes('DECORATIVE_LABEL'),'decorative English label must not appear')
+const understanding = {...report,kind:'understanding',sample_version:1,revision_no:2,data:{summary:'原稿',candidates:[{name:'珠光体',evidence:'片层候选',uncertainty:'待核实'}],dimensions:['成分','工艺','组织','性能','应用'].map(name=>({name,content:'五维原稿'+name,basis:'inferred'})),limitations:[]},latest_revision:{id:'rev2',revision_no:2,created_at:'2026-10-09T02:00:00Z',reason:'根据新的形貌依据修正',data:{final_phase:'贝氏体候选',phase_reason:'按实际形貌仍待验证',dimensions:['成分','工艺','组织','性能','应用'].map(name=>({name,content:'个人理解'+name,basis:'observed'}))}}}
+const understood = render(<UnderstandingEditor report={understanding} onSaved={async()=>{}}/> )
+assert(understood.includes('贝氏体候选') && understood.includes('按实际形貌仍待验证') && understood.includes('根据新的形貌依据修正'),'saved phase, evidence and revision reason must be visible')
+assert(understood.includes('understanding-dimensions') && understood.includes('待教师复核'),'five dimensions use cards and do not inherit an unrelated review')
+const initialProgress = {stage_id:'stage1',code:'model_receiving',label:'接收结果',at:'2026-10-09T02:00:00Z',elapsed_ms:10,details:{received_bytes:20}}
+const updatedProgress = {...initialProgress,updated_at:'2026-10-09T02:00:02Z',details:{received_bytes:40,received_chunks:3}}
+const merged = mergeProgress([updatedProgress],[initialProgress])
+assert(merged.length===1 && merged[0].details.received_bytes===40,'stale polling must not replace newer stage details')
+const processView=render(<AnalysisProgress progress={[updatedProgress]} job={{id:'j',status:'running',created_at:initialProgress.at}} now={Date.parse(updatedProgress.updated_at)}/> )
+assert(processView.includes('analysis-steps') && processView.includes('准备图片') && !processView.includes('50%'),'progress shows pending steps without a fabricated percentage')
 class FakeEventSource {
   constructor(){this.handlers={};FakeEventSource.last=this}
   addEventListener(type,fn){this.handlers[type]=fn}

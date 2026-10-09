@@ -81,7 +81,7 @@ export default function App() {
   const activeReports = reports.filter(item => !session || item.learning_session_id === session.id || (!item.learning_session_id && (!item.sample_version || item.sample_version === sample?.version)))
   const assessment = activeReports.find(item => item.kind === 'assessment'), understanding = activeReports.find(item => item.kind === 'understanding')
   const activeStep = steps.find(item => item.id === step)!
-  const pageName = view === 'learning' ? activeStep.name : view === 'library' ? '我的图谱与参考库' : view === 'identify' ? '智能识图' : view === 'teacher' ? '教师工作台' : '平台治理'
+  const pageName = view === 'learning' ? activeStep.name : view === 'library' ? '见微知著' : view === 'identify' ? '智能识图' : view === 'teacher' ? '教师工作台' : '平台治理'
   const descriptions: Record<LearningStep, string> = {
     atlas: '上传图像，记录本次实验的背景。',
     assessment: '核对图像质量，保存你的判断与依据。',
@@ -99,7 +99,7 @@ export default function App() {
           <div className="nav-label">学习</div>
           <button className={'nav-item ' + (view === 'learning' ? 'active' : '')} aria-current={view === 'learning' ? 'page' : undefined} onClick={() => navigate('learning')}><BookOpen size={18} /><span>学习工作台</span></button>
           <button className={'nav-item ' + (view === 'identify' ? 'active' : '')} aria-current={view === 'identify' ? 'page' : undefined} onClick={() => navigate('identify')}><Image size={18} /><span>智能识图</span></button>
-          <button className={'nav-item ' + (view === 'library' ? 'active' : '')} aria-current={view === 'library' ? 'page' : undefined} onClick={() => navigate('library')}><Library size={18} /><span>我的图谱与参考库</span></button>
+          <button className={'nav-item ' + (view === 'library' ? 'active' : '')} aria-current={view === 'library' ? 'page' : undefined} onClick={() => navigate('library')}><Library size={18} /><span>见微知著</span></button>
         </div>
         {(user.role === 'teacher' || user.role === 'admin') && <div className="nav-group">
           <div className="nav-label">教学与管理</div>

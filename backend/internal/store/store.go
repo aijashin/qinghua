@@ -83,6 +83,21 @@ func (s *Store) Migrate() error {
 			return err
 		}
 	}
+	if err = tx.QueryRow(`SELECT count(*) FROM schema_migrations WHERE version=3`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		if _, err = tx.Exec(`
+ UPDATE entities SET status='archived',version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),data=json_set(data,'$.status','archived','$.version',version+1,'$.updated_at',strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE kind IN ('atlas','documents','rubrics') AND json_extract(data,'$.demo')=1 AND status!='archived';
+ INSERT OR IGNORE INTO entity_versions SELECT id,version,data,updated_at FROM entities WHERE kind IN ('atlas','documents','rubrics') AND json_extract(data,'$.demo')=1 AND status='archived';
+ CREATE INDEX IF NOT EXISTS entities_class_records ON entities(kind,class_id,created_at,id);
+ INSERT INTO schema_migrations VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS reference_sources(id TEXT PRIMARY KEY,entity_id TEXT NOT NULL REFERENCES entities(id),entity_version INTEGER NOT NULL,kind TEXT NOT NULL,file_id TEXT NOT NULL,snapshot TEXT NOT NULL,UNIQUE(entity_id,entity_version)); CREATE INDEX IF NOT EXISTS reference_sources_entity ON reference_sources(entity_id,entity_version); INSERT OR IGNORE INTO schema_migrations VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

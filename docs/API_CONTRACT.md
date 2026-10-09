@@ -26,7 +26,7 @@ User 包含 `id,username,display_name,role,disabled`；role 为 `student/teacher
 ## 上传、样本与学习轮次
 
 - `POST /files`：multipart 的 `file` 字段；最大20MiB，图片支持 JPEG/PNG/WebP，校验真实类型、完整解码与尺寸。返回 `{id,name,mime,size,url}`。`GET /files/{id}` 受保护预览或下载。
-- `GET/POST /samples`：创建字段为 `{file_id,title,material,process,magnification,etchant,class_id?}`。四项背景信息不能为空；不清楚时明确填写“未知”。使用已发布共享图谱时，服务端复制授权图片到本人的存储归属并保留来源。
+- `GET/POST /samples`：创建字段为 `{file_id,title,material,process,magnification,etchant,class_id?}`。四项背景信息不能为空；不清楚时明确填写“未知”。新练习须使用本人上传的图片；共享参考图谱只供查阅，不复制成练习。
 - `GET/PATCH /samples/{id}`：修改图片或背景形成新版本；PATCH 可带 `base_version`，版本不符返回409。班级一经创建固定。`GET /samples/{id}/versions` 查看历史。
 - `GET/POST /learning-sessions`：创建字段为 `{sample_id,title?,parent_session_id?,task_id?}`，保存不可变 `sample_snapshot` 和 `sample_version`。
 - `GET/PATCH /learning-sessions/{id}`：更新 `{step,completed?}`；step 为 `atlas/assessment/understanding/practice`。`completed:true` 要求本轮同版本评图与五维报告均生成且分别保存采用/修正稿，然后原子创建个人图谱归档。
@@ -92,8 +92,8 @@ defects 包含 `name,severity,evidence,suggestion` 和可选 `bbox:{x,y,width,he
 - `POST /practice-tasks/{id}/attempts`：`{answer}`，保存实际提交；GET 同路径读取授权提交。提交不代表自动批改。
 - `POST /practice-tasks/{id}/complete`：`{reflection}`，只完成当前学生的分配，写入 `assignments`，不把全班任务直接标成完成。
 - `GET /personal-atlas`、`GET /personal-atlas/{id}`：本人完成轮次的归档，保留样本、五维理解、原报告和保存时的学生修订。后续教师反馈通过报告接口实时读取。
-- `GET /atlas?q=...`、`GET /atlas/{id}`：共享参考图谱。教师/管理员可创建与编辑草稿；管理员通过 `POST /atlas/{id}/publish` 发布。字段包括 `title,material,phase,process,magnification,etchant,description,observation,file_id,source,demo`。
-- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions?class_id=...` 返回授权报告。
+- `GET /atlas?q=...`、`GET /atlas/{id}`：共享参考图谱。教师/管理员可创建与编辑草稿；管理员通过 `POST /atlas/{id}/publish` 发布。字段包括 `title,material,phase,process,magnification,etchant,description,observation,file_id,source`。发布须有标题、图片和来源；拒绝demo:true。
+- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions` 在教师班级权限内筛选后分页：`class_id` 精确班级、`student_id` 精确学生、`q` 按姓名或账号检索（按字面匹配，最多150字），`limit` 默认20、范围1–100，`offset` 非负整数。返回 `{items,total,limit,offset}`，报告增加 `owner_name,owner_username,class_name,sample_title`。总量是筛选后的授权报告数，按created_at/id倒序，不跨班级。非法分页返回400，越权班级返回403。
 
 个人图谱检索与公共知识检索分开；个人修正不会自动变成公共资料，也不会自动训练模型。
 
@@ -125,4 +125,21 @@ defects 包含 `name,severity,evidence,suggestion` 和可选 `bbox:{x,y,width,he
 - 资料换版时指定 `replaces_document_id`，新版审核发布后旧版归档；`series_id/document_version` 保留沿革。已被报告引用的旧片段仍可由该报告有权读者访问。
 - `GET /knowledge/search?q=...` 使用中文单字/二元词及拉丁词 FTS 检索；可用 `material_tag/phase_tag/process_tag` 精确过滤，类别之间为AND，可与q组合。标签参与索引但不改写引用原文。`GET /knowledge/chunks/{id}` 查看引用正文。搜索返回片段包含 `id,title,content,document_id,document_version`。
 
-示例数据仅由显式 `seed-demo` 导入；其图像与资料保留示例标识，不生成虚构学生成绩。
+已删除示例导入功能。迁移3归档旧示例图谱/资料/规则，常规列表与检索排除示例；旧报告及引用保留。新学习只能使用本人上传图片；旧示例样本的新轮次/分析返回409。服务启动自动提供内置非示例教学规则；若规则被异常移除且没有可用版本，评图返回409 rubric_required，不调用模型。
+
+模型超时：每次模型请求独立使用配置的等待预算，默认300秒；结构错误最多一次格式修复，修复使用新预算。取消不转换为超时，传输错误不自动重试。超时失败返回可读中文错误，并持久化error_code:timeout，不生成新报告。
+
+
+## 内置规则、案例与详细进度
+
+服务启动幂等初始化已发布的“金相制样学习评价 v1”。`is_builtin`表示系统版本，自建已发布规则优先，按`published_at`排序（历史缺失时用created_at）。原报告仍绑定当时的规则。
+
+`POST /reports/{id}/review`增加`base_revision`，保存`revision_no/sample_version`。修订后报告回到pending_review，旧复核仍保留但不表示确认当前稿。
+
+`POST /reports/{id}/reference-cases`：传`review_id/base_revision`创建班级案例草稿。`GET /reference-cases`支持现有分页、class_id、q；`PATCH /reference-cases/{id}`传`base_version`及标题、组织、结论、观察、说明，草稿更新返回200，发布版本复制为新草稿返回201。`POST .../publish`发布班级；`POST .../withdraw`撤回；`POST /admin/reference-cases/{id}/publish`由管理员公开。三个动作均传base_version。新版本发布事务内撤回前一版。案例的公共响应不包含owner_id/report_id/review_id/file_id和原始修正数据。
+
+`DELETE /admin/documents/{id}`传`base_version`；状态变为deleted并记录操作者、时间。正常列表和后续RAG排除deleted，历史引用保留。发布支持可选base_version，版本变化返回409，删除/归档或空正文不能发布。
+
+Source增加`source_kind/source_version/image_url`；document仍提供document_id/document_version。`GET /knowledge/sources/{id}`与`.../image`读取参考图谱/案例快照，校验当前可见范围或历史报告引用。旧`GET /knowledge/chunks/{id}`保持兼容。检索返回最多6个文档片段+2个参考图；class_id未提供时只召回公共资料。
+
+JobProgress增加`stage_id/updated_at/details`，相同stage_id为详情刷新。details为固定白名单，无模型正文。客户端按stage_id合并，并拒绝较旧updated_at覆盖新快照；SSE仍按事件seq去重并回放。

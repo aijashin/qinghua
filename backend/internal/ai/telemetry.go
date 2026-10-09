@@ -53,11 +53,13 @@ type usage struct {
 	TotalTokens      *int64 `json:"total_tokens"`
 }
 type callStats struct {
-	started      time.Time
-	first        *int64
-	usage        *usage
-	finishReason string
-	onContent    func() error
+	receivedBytes, receivedChunks int
+	onDelta                       func(int, int, bool) error
+	started                       time.Time
+	first                         *int64
+	usage                         *usage
+	finishReason                  string
+	onContent                     func() error
 }
 
 func (s *callStats) content() error {
@@ -155,4 +157,18 @@ func optionalCount(v *int64) any {
 		return nil
 	}
 	return *v
+}
+
+func (s *callStats) receive(text string, force bool) error {
+	if s == nil {
+		return nil
+	}
+	s.receivedBytes += len(text)
+	if text != "" {
+		s.receivedChunks++
+	}
+	if s.onDelta != nil {
+		return s.onDelta(s.receivedBytes, s.receivedChunks, force)
+	}
+	return nil
 }

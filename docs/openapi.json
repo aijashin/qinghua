@@ -3,7 +3,7 @@
   "info": {
     "title": "见微知著独立教学后端",
     "version": "1.0.0",
-    "description": "独立 Go + SQLite + 本地文件系统 API。界面同源请求 /api/v1；账号、资料、学习状态与AI配置均独立，不依赖外部智能体平台。\n\n认证使用HttpOnly cookie。登录后所有写请求携带X-CSRF-Token，浏览器fetch需credentials:include。没有独立模型配置时AI任务返回503，不用演示数据替代。\n\n带Page响应的实体列表和jobs使用limit/offset，默认100、最多500；items/total/limit/offset均在权限与筛选之后计算。其他嵌套记录、账号、班级列表明确为不分页；知识检索最多6条。\n\n示例仅解释接口结构，不构成模型效果或材料性能承诺。"
+    "description": "独立 Go + SQLite + 本地文件系统 API。界面同源请求 /api/v1；账号、资料、学习状态与AI配置均独立，不依赖外部智能体平台。\n\n认证使用HttpOnly cookie。登录后所有写请求携带X-CSRF-Token，浏览器fetch需credentials:include。没有独立模型配置时AI任务返回503，不用演示数据替代。\n\n带Page响应的实体列表和jobs使用limit/offset，默认100、最多500；items/total/limit/offset均在权限与筛选之后计算。其他嵌套记录、账号、班级列表明确为不分页；知识检索最多6条。\n\n示例仅解释接口结构，不构成模型效果或材料性能承诺。\n\n教师学习记录列表的分页默认20、最多100，区别于普通实体列表。生产流程不提供示例图谱或默认示例规则；迁移3归档旧示例但保留历史引用。"
   },
   "servers": [
     {
@@ -724,6 +724,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         },
         "parameters": [
@@ -2204,6 +2207,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         },
         "description": "仅所授班级教师/管理员；写独立复核记录并更新报告审核状态。查看与指导不能替代此动作，确认不代表实测验证。",
@@ -2728,6 +2734,12 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         },
         "parameters": [
@@ -2745,7 +2757,7 @@
             "$ref": "#/components/parameters/CSRFToken"
           }
         ],
-        "description": "仅管理员。"
+        "description": "管理员审核真实参考图谱后发布；须有标题、图片和来源说明。旧示例不可重新发布。"
       }
     },
     "/insights": {
@@ -2822,7 +2834,7 @@
     "/teacher/submissions": {
       "get": {
         "operationId": "listTeacherSubmissions",
-        "summary": "读取教师待处理学习报告",
+        "summary": "按班级或学生检索并分页读取学生学习报告",
         "tags": [
           "教师"
         ],
@@ -2850,24 +2862,52 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           }
         },
-        "description": "教师/管理员专用，按班级权限和过滤条件返回报告。",
+        "description": "教师/管理员专用。仅学生报告，先应用班级权限，再按班级、学生、姓名或账号筛选，最后服务端分页。稳定按created_at/id倒序；返回学生姓名、账号、班级和样本名称。",
         "parameters": [
           {
-            "$ref": "#/components/parameters/Limit"
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "每页条数，非法值返回400"
           },
           {
-            "$ref": "#/components/parameters/Offset"
-          },
-          {
-            "$ref": "#/components/parameters/Search"
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
           },
           {
             "$ref": "#/components/parameters/ClassFilter"
           },
           {
-            "$ref": "#/components/parameters/SampleFilter"
+            "name": "student_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "按学生ID精确筛选，仍受教师班级权限限制"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 150
+            },
+            "description": "学生姓名或账号的字面包含匹配，%和_不是通配符"
           }
         ]
       }
@@ -3333,7 +3373,7 @@
             }
           }
         },
-        "description": "仅管理员。"
+        "description": "管理员创建正式教学规则草稿，四项各25分，每项必须有非空rule_text或description。拒绝demo:true；发布新版本不改写旧报告。"
       }
     },
     "/admin/rubrics/{id}/publish": {
@@ -3370,6 +3410,12 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         },
         "description": "仅管理员。 新分析选择已发布规则并保存快照；历史报告规则不被改写。",
@@ -3484,6 +3530,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           }
         },
         "description": "仅管理员。 发布是事务操作，若上一版已被另一新版本替换返回409。旧片段保留：有权访问引用它的历史报告者仍可查看该片段。",
@@ -3501,7 +3550,17 @@
           {
             "$ref": "#/components/parameters/CSRFToken"
           }
-        ]
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/documents/{id}/chunks": {
@@ -3642,7 +3701,7 @@
             "$ref": "#/components/responses/BadRequest"
           }
         },
-        "description": "只检索当前已发布资料，最多6条，不支持分页。q使用中文单字/二元词与英文分词，并可匹配已索引标签。material_tag/phase_tag/process_tag各为一个精确标签筛选，类别之间AND；ASCII忽略大小写。q为空但存在标签时可仅筛选标签；所有条件均空返回空数组。标签与正文分开返回，不将标签表述为原文证据。",
+        "description": "关键词RAG召回：最多6个文档片段及2个参考图谱/案例；无向量或图片相似度检索。班级案例要求明确class_id并校验成员权限，个人上下文只召回公共资料。",
         "parameters": [
           {
             "name": "q",
@@ -3678,8 +3737,677 @@
               "maxLength": 64
             },
             "description": "工艺精确标签，trim后匹配。"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
           }
         ]
+      }
+    },
+    "/reference-cases": {
+      "get": {
+        "operationId": "listReferenceCases",
+        "summary": "匿名教学案例列表",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCasePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "仅返回可见班级或公共案例；学生看不到草稿和撤回案例。"
+      }
+    },
+    "/reference-cases/{id}": {
+      "get": {
+        "operationId": "getReferenceCase",
+        "summary": "读取匿名教学案例",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": ""
+      },
+      "patch": {
+        "operationId": "editReferenceCase",
+        "summary": "编辑案例或复制为新版本草稿",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          }
+        },
+        "description": "草稿返回200；已发布或撤回版本复制为新草稿返回201，原版保持不变。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceCasePatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference-cases/{id}/image": {
+      "get": {
+        "operationId": "getReferenceCaseImage",
+        "summary": "读取授权案例图片",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "受保护的参考图片",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": ""
+      }
+    },
+    "/reports/{id}/reference-cases": {
+      "post": {
+        "operationId": "createReferenceCase",
+        "summary": "从当前已确认版本创建案例草稿",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "仅所授班级教师或管理员，复核须绑定当前修订及样本版本；不返回学生身份及原报告字段。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceCaseCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference-cases/{id}/publish": {
+      "post": {
+        "operationId": "publishClassReferenceCase",
+        "summary": "发布班级案例",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "校验base_version；保存发布者、范围及时间。撤回后停止新召回，保留历史引用。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reference-cases/{id}/withdraw": {
+      "post": {
+        "operationId": "withdrawReferenceCase",
+        "summary": "撤回教学案例",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "校验base_version；保存发布者、范围及时间。撤回后停止新召回，保留历史引用。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/reference-cases/{id}/publish": {
+      "post": {
+        "operationId": "publishPublicReferenceCase",
+        "summary": "管理员审核并公开案例",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "校验base_version；保存发布者、范围及时间。撤回后停止新召回，保留历史引用。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/documents/{id}": {
+      "delete": {
+        "operationId": "deleteKnowledgeDocument",
+        "summary": "删除资料并保留历史引用",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocument"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "仅管理员。逻辑删除，从正常列表和新召回移除，保留文件、版本及历史引用。已经召回的运行中任务保留本次快照。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/knowledge/sources/{id}": {
+      "get": {
+        "operationId": "getReferenceSource",
+        "summary": "读取带版本的参考资料快照",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Source"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "可见已发布版本或有权查看引用该快照的历史报告。"
+      }
+    },
+    "/knowledge/sources/{id}/image": {
+      "get": {
+        "operationId": "getReferenceSourceImage",
+        "summary": "读取授权参考图片快照",
+        "tags": [
+          "教学资料"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "受保护的参考图片",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": ""
       }
     }
   },
@@ -4202,7 +4930,7 @@
           "magnification",
           "etchant"
         ],
-        "description": "可使用本人上传文件；已发布图谱图片会复制为独立学习文件并保留示例来源。",
+        "description": "新练习仅使用本人上传的JPG/PNG/WebP图片，不复制共享图谱或历史示例。四项背景非空，未知可明确填写。",
         "examples": [
           {
             "title": "45钢 第一次练习",
@@ -4539,6 +5267,13 @@
           "version": {
             "type": "integer",
             "minimum": 1
+          },
+          "is_builtin": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -4546,7 +5281,7 @@
           "title",
           "criteria"
         ],
-        "description": "报告保存当时规则快照；未发布规则时使用明确标注的教学示例四项规则。"
+        "description": "报告保存当时正式规则快照。新评图没有已发布非示例规则时返回409 rubric_required，不自动套用默认规则。"
       },
       "Rubric": {
         "type": "object",
@@ -4598,6 +5333,13 @@
           },
           "demo": {
             "type": "boolean"
+          },
+          "is_builtin": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -4653,6 +5395,29 @@
           },
           "content": {
             "type": "string"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "document",
+              "atlas",
+              "review_case"
+            ]
+          },
+          "source_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "image_url": {
+            "type": "string",
+            "description": "受登录、班级或历史报告引用权限保护的参考图片地址。"
           }
         },
         "required": [
@@ -4677,9 +5442,7 @@
             "type": "string"
           },
           "document_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            "type": "string"
           },
           "document_version": {
             "type": "integer",
@@ -4714,14 +5477,28 @@
             },
             "maxItems": 12,
             "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "document",
+              "atlas",
+              "review_case"
+            ]
+          },
+          "source_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "image_url": {
+            "type": "string",
+            "description": "受登录、班级或历史报告引用权限保护的参考图片地址。"
           }
         },
         "required": [
           "id",
           "title",
-          "content",
-          "document_id",
-          "document_version"
+          "content"
         ]
       },
       "KnowledgeChunk": {
@@ -4739,14 +5516,32 @@
             "type": "string"
           },
           "document_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            "type": "string"
           },
           "position": {
             "type": "integer",
             "minimum": 0,
             "description": "文档片段顺序，从0开始；单片段详情可不包含。"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "document",
+              "atlas",
+              "review_case"
+            ]
+          },
+          "source_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "document_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "image_url": {
+            "type": "string",
+            "description": "受登录、班级或历史报告引用权限保护的参考图片地址。"
           }
         },
         "required": [
@@ -5298,6 +6093,11 @@
             "type": "number",
             "minimum": 0,
             "maximum": 100
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "页面读取到的学生修订号；不同于报告实体version。旧客户端未提供时只在服务器读取版本未变更时接受。"
           }
         },
         "required": [
@@ -5354,6 +6154,14 @@
             "type": "number",
             "minimum": 0,
             "maximum": 100
+          },
+          "revision_no": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sample_version": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [
@@ -5572,7 +6380,15 @@
             "description": "经模型明确引用的来源快照；ID与data.citations对应。"
           },
           "rubric": {
-            "$ref": "#/components/schemas/RubricSnapshot"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RubricSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "评图必须绑定正式规则。五维/训练任务在没有已发布规则时可为null，不自动使用示例规则。"
           },
           "model": {
             "type": "string"
@@ -5607,6 +6423,22 @@
           },
           "timings": {
             "$ref": "#/components/schemas/JobTimings"
+          },
+          "owner_name": {
+            "type": "string",
+            "description": "教师学习记录列表返回；学生显示名称，缺失时使用账号"
+          },
+          "owner_username": {
+            "type": "string",
+            "description": "教师学习记录列表返回；学生登录账号"
+          },
+          "class_name": {
+            "type": "string",
+            "description": "教师学习记录列表返回；报告所属班级的名称"
+          },
+          "sample_title": {
+            "type": "string",
+            "description": "教师学习记录列表返回；生成报告时样本快照的标题"
           }
         },
         "required": [
@@ -6248,7 +7080,7 @@
           "title",
           "demo"
         ],
-        "description": "管理员审核发布的公共图谱；demo=true 表示教学示例而非真实实验结果。"
+        "description": "管理员审核发布的真实公共参考图谱。发布须有标题、图片与来源。demo字段仅兼容历史数据，旧示例不进入常规列表或新分析。"
       },
       "AtlasCreate": {
         "type": "object",
@@ -6459,7 +7291,8 @@
             "enum": [
               "draft",
               "published",
-              "archived"
+              "archived",
+              "deleted"
             ]
           },
           "version": {
@@ -6563,6 +7396,13 @@
           },
           "timings": {
             "$ref": "#/components/schemas/JobTimings"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_by": {
+            "type": "string"
           }
         },
         "required": [
@@ -7363,6 +8203,17 @@
             "type": "integer",
             "minimum": 0,
             "description": "对应completed的真实总数量。"
+          },
+          "stage_id": {
+            "type": "string",
+            "description": "同阶段详情更新使用同一个编号；at和elapsed_ms不改变。"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ProgressDetails"
           }
         },
         "required": [
@@ -7484,6 +8335,312 @@
           "total_ms",
           "model_ms"
         ]
+      },
+      "VersionRequest": {
+        "type": "object",
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "base_version"
+        ]
+      },
+      "ReferenceCase": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "withdrawn"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "class",
+              "public"
+            ]
+          },
+          "class_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "magnification": {
+            "type": "string"
+          },
+          "etchant": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "case_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "scope",
+          "version",
+          "class_id",
+          "image_url"
+        ]
+      },
+      "ReferenceCaseCreate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "phase": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "conclusion": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "observation": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "review_id": {
+            "type": "string"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "review_id",
+          "base_revision"
+        ]
+      },
+      "ReferenceCasePatch": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "phase": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "conclusion": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "observation": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "base_version"
+        ]
+      },
+      "ReferenceCasePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferenceCase"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "ProgressDetails": {
+        "type": "object",
+        "properties": {
+          "document_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reference_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unavailable_images": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "first_content_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "received_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "received_chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "mime": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": []
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "source_kind": {
+                  "type": "string"
+                },
+                "source_version": {
+                  "type": "integer"
+                }
+              },
+              "required": []
+            }
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "response_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "not_checked",
+                    "not_applicable"
+                  ]
+                }
+              },
+              "required": []
+            }
+          },
+          "call": {
+            "$ref": "#/components/schemas/ModelCallTiming"
+          },
+          "saved": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
       }
     },
     "headers": {

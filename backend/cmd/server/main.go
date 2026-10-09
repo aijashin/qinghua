@@ -77,8 +77,6 @@ func run() error {
 			fmt.Println("一次性显示初始密码:", password)
 		}
 		return nil
-	case "seed-demo":
-		return app.SeedDemo(s)
 	case "backup":
 		if len(os.Args) != 3 {
 			return fmt.Errorf("usage: server backup <backup.tar.gz>")
@@ -101,7 +99,10 @@ func run() error {
 		return fmt.Errorf("数据目录已有服务运行")
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	timeout, _ := strconv.Atoi(env("ZHIWEI_AI_TIMEOUT_SECONDS", "180"))
+	timeout, err := strconv.Atoi(env("ZHIWEI_AI_TIMEOUT_SECONDS", "300"))
+	if err != nil || timeout < 1 || timeout > 1800 {
+		return fmt.Errorf("ZHIWEI_AI_TIMEOUT_SECONDS须为1至1800秒的整数")
+	}
 	a, e := app.New(app.Config{Addr: env("ZHIWEI_ADDR", "127.0.0.1:8080"), DataDir: dir, WebDir: env("ZHIWEI_WEB_DIR", "../dist"), AIBaseURL: os.Getenv("ZHIWEI_AI_BASE_URL"), AIAPIKey: os.Getenv("ZHIWEI_AI_API_KEY"), AIModel: os.Getenv("ZHIWEI_AI_MODEL"), AITimeout: time.Duration(timeout) * time.Second, CookieSecure: os.Getenv("ZHIWEI_COOKIE_SECURE") == "true", AllowedOrigins: strings.Split(os.Getenv("ZHIWEI_ALLOWED_ORIGINS"), ",")})
 	if e != nil {
 		return e
@@ -117,7 +118,7 @@ func run() error {
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-	slog.Info("server.listening", "address", srv.Addr, "ai_content_logging", content, "log_level", env("ZHIWEI_LOG_LEVEL", "info"))
+	slog.Info("server.listening", "address", srv.Addr, "ai_timeout_seconds", timeout, "ai_content_logging", content, "log_level", env("ZHIWEI_LOG_LEVEL", "info"))
 	if e = srv.ListenAndServe(); e != nil && e != http.ErrServerClosed {
 		return e
 	}

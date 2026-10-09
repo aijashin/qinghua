@@ -1,13 +1,15 @@
+import { ReferenceCases } from './ReferenceCases'
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Eye, MessageSquare, Plus, Save, Send, Users } from 'lucide-react'
+import { CheckCircle2, MessageSquare, Plus, Save, Send, Users } from 'lucide-react'
 import { Badge, Button, Empty, Field, Loading, Message, PageTitle, Panel, RecordDate } from './WorkbenchUI'
 import { BasisBadge, BackToList, ReportDetail, SampleImage } from './LearningWorkspace'
 import { Trend } from './StudentRecords'
+import { TeacherSubmissions } from './TeacherSubmissions'
 import { errorMessage, list, request, type Attempt, type ClassRecord, type Insights, type LearningSession, type PracticeTask, type Report, type Review, type Sample } from '../api'
 
 export function TeacherWorkspace() {
   const [tab, setTab] = useState('records')
-  const [reports, setReports] = useState<Report[]>([])
+  const [refreshKey, setRefreshKey] = useState(0)
   const [classes, setClasses] = useState<ClassRecord[]>([])
   const [classId, setClassId] = useState('')
   const [selected, setSelected] = useState<Report | null>(null)
@@ -19,12 +21,11 @@ export function TeacherWorkspace() {
   const reload = useCallback(async () => {
     setError('')
     try {
-      const [items, groups, summary] = await Promise.all([
-        list<Report>(`/teacher/submissions${classId ? '?class_id=' + encodeURIComponent(classId) : ''}`),
+      const [groups, summary] = await Promise.all([
         list<ClassRecord>('/classes'),
         request<Insights>(`/insights?include_demo=false${classId ? '&class_id=' + encodeURIComponent(classId) : ''}`),
       ])
-      setReports(items); setClasses(groups); setInsights(summary)
+      setClasses(groups); setInsights(summary); setRefreshKey(value => value + 1)
     } catch (err) { setError(errorMessage(err)) } finally { setLoading(false) }
   }, [classId])
   useEffect(() => { void Promise.resolve().then(reload) }, [reload])
@@ -43,7 +44,7 @@ export function TeacherWorkspace() {
       const name = classes.find(item => item.id === classId)?.name || '当前班级'
       const focus = issues[0]
       const instruction = [
-        `草稿依据：${name}已保存的真实样本记录（不含合成示意图）。`,
+        `草稿依据：${name}已保存的真实样本记录。`,
         `已记录问题：${issues.slice(0, 3).map(item => `${item.name}（${item.count} 条记录）`).join('；')}。`,
         `本次仅聚焦“${focus.name}”，以下是基于记录整理的练习模板，需教师核对后发布。`,
         '',
@@ -56,21 +57,21 @@ export function TeacherWorkspace() {
       setGeneratedDraft(draft); setTab('tasks')
     } catch (err) { setError(errorMessage(err)) } finally { setGenerating(false) }
   }
-  if (selected) return <TeacherRecord report={selected} onBack={() => { setSelected(null); void reload() }} onUpdate={setSelected} />
   const period = insights?.period
   return <>
+    {selected && <TeacherRecord report={selected} onBack={() => { setSelected(null); void reload() }} onUpdate={setSelected} />}
+    <div hidden={!!selected}>
     <PageTitle label="TEACHER WORKSPACE" title="看见每一次理解的变化" description="从学生的观察、修正与练习记录出发，提供具体反馈。查看、指导和复核分别记录。" action={<Badge tone="cyan"><Users size={12} />教师工作台</Badge>} />
-    <div className="tabs">{[['records', '学习记录'], ['insights', '班级学情'], ['tasks', '干预与训练']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <div className="tabs">{[['records', '学习记录'], ['insights', '班级学情'], ['cases', '教学案例'], ['tasks', '干预与训练']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     {error && <Message>{error}</Message>}
     {tab !== 'tasks' && <div className="toolbar"><select aria-label="筛选班级" disabled={generating} value={classId} onChange={event => setClassId(event.target.value)}><option value="">全部授权班级</option>{classes.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><Button variant="secondary" onClick={reload}>刷新</Button></div>}
-    {loading ? <Loading /> : tab === 'records' ? <Panel title="学生学习记录" note="仅显示你有权限查看的班级记录。">
-      {!reports.length ? <Empty title="暂时没有学习记录">学生完成 AI 分析后，可在这里查看原稿、学生修正和证据。</Empty> : <div className="table-wrap"><table className="table"><thead><tr><th>学生 / 样本</th><th>模块</th><th>提交时间</th><th>复核状态</th><th>操作</th></tr></thead><tbody>{reports.map(item => <tr key={item.id}><td><strong>{item.owner_name || item.owner_id}</strong><small>{item.sample_id}</small></td><td>{item.kind === 'assessment' ? '鹰眼评图' : item.kind === 'understanding' ? '识相悟道' : item.kind === 'coaching' ? '训练建议' : '智能识图'}</td><td><RecordDate value={item.created_at} /></td><td><Badge tone={item.status === 'reviewed' ? 'green' : 'amber'}>{item.status === 'reviewed' ? '已复核' : '待复核'}</Badge></td><td><Button variant="secondary" className="compact" onClick={() => open(item)}><Eye size={13} />查看记录</Button></td></tr>)}</tbody></table></div>}
-    </Panel> : tab === 'insights' ? insights && <>
-      <div className="notice-strip">统计范围：{period?.label || '全部已授权记录'}{period?.from && <> · <RecordDate value={period.from} /> 至 <RecordDate value={period.to} /></>}。仅统计真实样本，合成示意图不计入本页学情。</div>
+    {loading ? <Loading /> : tab === 'records' ? <TeacherSubmissions key={classId} classId={classId} classes={classes} refreshKey={refreshKey} onOpen={open} /> : tab === 'insights' ? insights && <>
+      <div className="notice-strip">统计范围：{period?.label || '全部已授权记录'}{period?.from && <> · <RecordDate value={period.from} /> 至 <RecordDate value={period.to} /></>}。仅统计真实上传样本。</div>
       <div className="metrics"><div className="stat"><span>样本总数</span><strong>{insights.sample_count}</strong><small>待复核记录 {insights.pending_review_count} 条</small></div><div className="stat"><span>学生修正记录</span><strong>{insights.revision_count ?? '—'}</strong><small>涉及 {insights.revised_report_count ?? '—'} 份报告</small></div><div className="stat"><span>训练分配人次</span><strong>{insights.assignment_count ?? '—'}</strong><small>{insights.practice_count} 项任务的实际分配</small></div><div className="stat"><span>已完成训练人次</span><strong>{insights.completed_assignment_count ?? '—'}</strong><small>按每位学生的完成记录计数</small></div></div>
       <div className="two-col"><Trend insights={insights} /><Panel title="共性问题" note="按已记录问题汇总，不推断未提交学生的情况。"><div className="panel-body">{insights.defects.length ? insights.defects.map(item => <div className="finding row row-between" key={item.name}><h3>{item.name}</h3><Badge tone="amber">{item.count} 条记录</Badge></div>) : <Empty title="暂时没有共性问题数据" />}</div></Panel></div>
       <div className="notice-strip row row-between"><span>{!classId ? '选择一个具体班级后，可根据已记录共性问题生成干预草稿。' : !insights.defects.length ? '当前班级暂无共性问题，积累学习记录后再生成。' : '根据本班已记录问题整理任务模板。先编辑核对，再显式发布；此操作不调用 AI。'}</span><Button variant="secondary" disabled={generating || !classId || !insights.defects.some(item => item.count > 0)} onClick={generateDraft}><Plus size={14} />{generating ? '正在保存模板草稿…' : '根据共性问题生成草稿'}</Button></div>
-    </> : <TeacherTasks classes={classes} initialDraft={generatedDraft} onDraftHandled={() => setGeneratedDraft(null)} />}
+    </> : tab === 'cases' ? <ReferenceCases classId={classId} /> : <TeacherTasks classes={classes} initialDraft={generatedDraft} onDraftHandled={() => setGeneratedDraft(null)} />}
+    </div>
   </>
 }
 
@@ -78,9 +79,9 @@ function TeacherRecord({ report, onBack, onUpdate }: { report: Report; onBack: (
   const [sample, setSample] = useState<Sample | null>(null), [feedback, setFeedback] = useState<Review[]>([]), [reviews, setReviews] = useState<Review[]>([]), [comment, setComment] = useState(''), [score, setScore] = useState(''), [decision, setDecision] = useState('confirmed'), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false)
   const load = useCallback(async () => { try { const [s, f, r] = await Promise.all([report.sample_snapshot ? Promise.resolve(report.sample_snapshot) : request<Sample>(`/samples/${report.sample_id}`), list<Review>(`/reports/${report.id}/feedback`), list<Review>(`/reports/${report.id}/reviews`)]); setSample(report.sample_snapshot || s); setFeedback(f); setReviews(r) } catch (err) { setError(errorMessage(err)) } }, [report.id, report.sample_id, report.sample_snapshot])
   useEffect(() => { void Promise.resolve().then(load) }, [load])
-  async function save(review: boolean) { setBusy(true); setError(''); setMessage(''); try { await request(`/reports/${report.id}/${review ? 'review' : 'feedback'}`, { method: 'POST', body: review ? { decision, comment, ...(score !== '' ? { corrected_score: Number(score) } : {}) } : { comment } }); setMessage(review ? '复核决定已保存，原始 AI 报告仍保留。' : '指导意见已保存，复核状态未改变。'); setComment(''); await load(); onUpdate(await request<Report>(`/reports/${report.id}`)) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) } }
+  async function save(review: boolean) { setBusy(true); setError(''); setMessage(''); try { await request(`/reports/${report.id}/${review ? 'review' : 'feedback'}`, { method: 'POST', body: review ? { decision, comment, base_revision: report.revision_no || 0, ...(score !== '' ? { corrected_score: Number(score) } : {}) } : { comment } }); setMessage(review ? '复核决定已保存，原始 AI 报告仍保留。' : '指导意见已保存，复核状态未改变。'); setComment(''); await load(); onUpdate({ ...report, ...await request<Report>(`/reports/${report.id}`) }) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) } }
   const revision = report.latest_revision
-  return <><BackToList onClick={onBack} /><PageTitle label="LEARNING EVIDENCE" title="学习记录与教师反馈" description="对照原始图像、AI 依据与学生修正，再做教学判断。" /><div className="two-col"><div>{sample && <Panel title={sample.title} note={`${sample.material} · ${sample.process}`}><div className="panel-body"><SampleImage sample={sample} label={sample.title} /></div></Panel>}<ReportDetail report={report} /></div><div><Panel title="学生修正" note={revision ? revision.reason || revision.comment : '当前尚未提交修正。'}><div className="panel-body">{revision?.data ? <>{revision.data.final_phase && <p>组织判断：{revision.data.final_phase}</p>}{revision.data.criteria?.map(item => <div className="finding" key={item.id}><div className="row row-between"><h3>{item.label}</h3><strong>{item.score == null ? '无法判断' : `${item.score}/${item.max_score}`}</strong></div><p>{item.rule_text}</p><p>{item.evidence}</p></div>)}{revision.data.dimensions?.map(item => <div className="finding" key={item.name}><div className="row"><h3>{item.name}</h3><BasisBadge basis={item.basis} /></div><p>{item.content}</p></div>)}</> : <p className="muted">可以针对 AI 原稿给出阅读提示，再请学生补充判断依据。</p>}</div></Panel><Panel title="指导与复核" note="发送指导不会自动确认结果；请明确保存复核决定。"><div className="panel-body stack"><Field label="具体反馈 / 复核理由"><textarea value={comment} onChange={event => setComment(event.target.value)} placeholder="指出需要补充的证据，或解释你的确认与修订。" /></Field><Button variant="secondary" disabled={busy || !comment.trim()} onClick={() => save(false)}><MessageSquare size={15} />仅保存指导意见</Button><div className="divider" /><div className="fields"><Field label="复核决定"><select value={decision} onChange={event => setDecision(event.target.value)}><option value="confirmed">确认当前结论</option><option value="needs_revision">请学生补充修订</option></select></Field>{report.kind === 'assessment' && <Field label="教师修正总分（选填）"><input type="number" min={0} max={100} value={score} onChange={event => setScore(event.target.value)} placeholder="0–100" /></Field>}</div><Button disabled={busy || !comment.trim() || (score !== '' && (Number(score) < 0 || Number(score) > 100))} onClick={() => save(true)}><CheckCircle2 size={15} />保存复核决定</Button>{error && <Message>{error}</Message>}{message && <Message kind="success">{message}</Message>}</div></Panel><Panel title="反馈与复核记录"><div className="panel-body">{[...reviews.map(item => ({ ...item, kind: 'review' })), ...feedback.map(item => ({ ...item, kind: 'feedback' }))].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(item => <div className="finding" key={item.id}><div className="row row-between"><Badge tone={item.kind === 'review' ? 'green' : 'cyan'}>{item.kind === 'review' ? '明确复核' : '教学指导'}</Badge><span className="muted" style={{ fontSize: 12 }}><RecordDate value={item.created_at} /></span></div><p className="space-top">{item.comment}</p></div>)}{!feedback.length && !reviews.length && <p className="muted">还没有教师反馈。</p>}</div></Panel></div></div></>
+  return <><BackToList onClick={onBack} /><PageTitle label="LEARNING EVIDENCE" title="学习记录与教师反馈" description={`${report.owner_name || "学生"} · ${report.owner_username || ""} · ${report.class_name || "未关联班级"}`} /><div className="two-col"><div>{sample && <Panel title={sample.title} note={`${sample.material} · ${sample.process}`}><div className="panel-body"><SampleImage sample={sample} label={sample.title} /></div></Panel>}<ReportDetail report={report} /></div><div><Panel title="学生修正" note={revision ? revision.reason || revision.comment : '当前尚未提交修正。'}><div className="panel-body">{revision?.data ? <>{revision.data.final_phase && <p>组织判断：{revision.data.final_phase}</p>}{revision.data.criteria?.map(item => <div className="finding" key={item.id}><div className="row row-between"><h3>{item.label}</h3><strong>{item.score == null ? '无法判断' : `${item.score}/${item.max_score}`}</strong></div><p>{item.rule_text}</p><p>{item.evidence}</p></div>)}{revision.data.dimensions?.map(item => <div className="finding" key={item.name}><div className="row"><h3>{item.name}</h3><BasisBadge basis={item.basis} /></div><p>{item.content}</p></div>)}</> : <p className="muted">可以针对 AI 原稿给出阅读提示，再请学生补充判断依据。</p>}</div></Panel><Panel title="指导与复核" note="发送指导不会自动确认结果；请明确保存复核决定。"><div className="panel-body stack"><Field label="具体反馈 / 复核理由"><textarea value={comment} onChange={event => setComment(event.target.value)} placeholder="指出需要补充的证据，或解释你的确认与修订。" /></Field><Button variant="secondary" disabled={busy || !comment.trim()} onClick={() => save(false)}><MessageSquare size={15} />仅保存指导意见</Button><div className="divider" /><div className="fields"><Field label="复核决定"><select value={decision} onChange={event => setDecision(event.target.value)}><option value="confirmed">确认当前结论</option><option value="needs_revision">请学生补充修订</option></select></Field>{report.kind === 'assessment' && <Field label="教师修正总分（选填）"><input type="number" min={0} max={100} value={score} onChange={event => setScore(event.target.value)} placeholder="0–100" /></Field>}</div><Button disabled={busy || !comment.trim() || (score !== '' && (Number(score) < 0 || Number(score) > 100))} onClick={() => save(true)}><CheckCircle2 size={15} />保存复核决定</Button>{error && <Message>{error}</Message>}{message && <Message kind="success">{message}</Message>}</div></Panel><ReferenceCases report={report} /><Panel title="反馈与复核记录"><div className="panel-body">{[...reviews.map(item => ({ ...item, kind: 'review' })), ...feedback.map(item => ({ ...item, kind: 'feedback' }))].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(item => <div className="finding" key={item.id}><div className="row row-between"><Badge tone={item.kind === 'review' ? 'green' : 'cyan'}>{item.kind === 'review' ? '明确复核' : '教学指导'}</Badge><span className="muted" style={{ fontSize: 12 }}><RecordDate value={item.created_at} /></span></div><p className="space-top">{item.comment}</p></div>)}{!feedback.length && !reviews.length && <p className="muted">还没有教师反馈。</p>}</div></Panel></div></div></>
 }
 
 function TeacherTasks({ classes, initialDraft, onDraftHandled }: { classes: ClassRecord[]; initialDraft: PracticeTask | null; onDraftHandled: () => void }) {
