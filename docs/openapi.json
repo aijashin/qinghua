@@ -1,0 +1,7498 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "见微知著独立教学后端",
+    "version": "1.0.0",
+    "description": "独立 Go + SQLite + 本地文件系统 API。界面同源请求 /api/v1；账号、资料、学习状态与AI配置均独立，不依赖外部智能体平台。\n\n认证使用HttpOnly cookie。登录后所有写请求携带X-CSRF-Token，浏览器fetch需credentials:include。没有独立模型配置时AI任务返回503，不用演示数据替代。\n\n带Page响应的实体列表和jobs使用limit/offset，默认100、最多500；items/total/limit/offset均在权限与筛选之后计算。其他嵌套记录、账号、班级列表明确为不分页；知识检索最多6条。\n\n示例仅解释接口结构，不构成模型效果或材料性能承诺。"
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "与前端同源的本地/生产服务"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "认证"
+    },
+    {
+      "name": "系统"
+    },
+    {
+      "name": "文件"
+    },
+    {
+      "name": "学习"
+    },
+    {
+      "name": "AI任务"
+    },
+    {
+      "name": "练习"
+    },
+    {
+      "name": "图库"
+    },
+    {
+      "name": "教师"
+    },
+    {
+      "name": "教学资料"
+    },
+    {
+      "name": "班级账号"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "服务存活检查",
+        "tags": [
+          "系统"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OK"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "operationId": "getAuthSession",
+        "summary": "读取当前登录会话",
+        "tags": [
+          "认证"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                },
+                "example": {
+                  "user": null,
+                  "csrf_token": "",
+                  "ai_configured": false
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "用户名密码登录",
+        "tags": [
+          "认证"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "zhiwei_session=<opaque>; Path=/; HttpOnly; SameSite=Lax。可配置Secure；会话最长7天。"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "description": "登录尝试过多。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "rate_limited",
+                    "message": "登录尝试过多，请稍后重试"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          }
+        },
+        "description": "成功设置HttpOnly、SameSite=Lax的zhiwei_session cookie。无CSRF头要求，但校验Origin；同一IP/用户名一分钟内最多8次尝试。",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "退出并撤销当前会话",
+        "tags": [
+          "认证"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OK"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/system/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "summary": "读取实际能力配置状态",
+        "tags": [
+          "系统"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/files": {
+      "post": {
+        "operationId": "uploadFile",
+        "summary": "上传图片或教学资料",
+        "tags": [
+          "文件"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileAsset"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "上限20MiB。图片支持JPEG/PNG/WebP，校验真实MIME、尺寸和完整解码，最多4000万像素。文档支持UTF-8 TXT/MD、DOCX、文本型PDF；文档内容在导入任务中提取。文件名不作为存储路径。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "原始文件字节，不是base64字符串。"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}": {
+      "get": {
+        "operationId": "downloadFile",
+        "summary": "读取授权文件原始内容",
+        "tags": [
+          "文件"
+        ],
+        "responses": {
+          "200": {
+            "description": "原始二进制文件；响应MIME与存储的真实类型一致。",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "图片inline，其他attachment；保留经过格式化的原文件名。"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            },
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "需拥有文件或有权读取引用该文件的样本、报告、学习轮次或已发布图谱/资料。图片inline展示，文档attachment下载。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/samples": {
+      "get": {
+        "operationId": "listSample",
+        "summary": "样本列表",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SamplePage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createSample",
+        "summary": "创建带背景的样本",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sample"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SampleCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/samples/{id}": {
+      "get": {
+        "operationId": "getSample",
+        "summary": "读取样本详情",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sample"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateSample",
+        "summary": "更新样本图像或背景并保留版本",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sample"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SamplePatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/learning-sessions": {
+      "get": {
+        "operationId": "listLearningSession",
+        "summary": "学习轮次列表",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SampleFilter"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createLearningSession",
+        "summary": "创建学习轮次并冻结样本快照",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSession"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningSessionCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/learning-sessions/{id}": {
+      "get": {
+        "operationId": "getLearningSession",
+        "summary": "读取学习轮次详情",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSession"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateLearningSession",
+        "summary": "保存学习进度或完成归档",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSession"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "description": "完成时检查本轮评图和五维理解报告及其学生采用/修正稿，生成个人图谱并返回personal_atlas_id。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningSessionPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports": {
+      "get": {
+        "operationId": "listReport",
+        "summary": "报告列表",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SampleFilter"
+          }
+        ]
+      }
+    },
+    "/reports/{id}": {
+      "get": {
+        "operationId": "getReport",
+        "summary": "读取报告详情",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/practice-tasks": {
+      "get": {
+        "operationId": "listPracticeTask",
+        "summary": "练习任务列表",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTaskPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SampleFilter"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createPracticeTask",
+        "summary": "创建个人训练或教师任务草稿",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTask"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PracticeCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/practice-tasks/{id}": {
+      "get": {
+        "operationId": "getPracticeTask",
+        "summary": "读取练习任务详情",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTask"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updatePracticeTask",
+        "summary": "编辑自己布置的任务",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTask"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "本人或管理员可编辑；指定学生必须属于授课班级。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PracticePatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/atlas": {
+      "get": {
+        "operationId": "listAtlasEntry",
+        "summary": "公共图谱列表",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasEntryPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createAtlasEntry",
+        "summary": "教师创建公共图谱草稿",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasEntry"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtlasCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/atlas/{id}": {
+      "get": {
+        "operationId": "getAtlasEntry",
+        "summary": "读取公共图谱详情",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasEntry"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateAtlasEntry",
+        "summary": "修改图谱并转为待发布草稿",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasEntry"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtlasPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/personal-atlas": {
+      "get": {
+        "operationId": "listPersonalAtlas",
+        "summary": "个人图谱列表",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAtlasPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。只来自完成的个人学习记录，不自动发布或作为公共检索资料。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SampleFilter"
+          }
+        ]
+      }
+    },
+    "/personal-atlas/{id}": {
+      "get": {
+        "operationId": "getPersonalAtlas",
+        "summary": "读取个人图谱详情",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAtlas"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/documents": {
+      "get": {
+        "operationId": "listKnowledgeDocument",
+        "summary": "知识资料列表",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。已发布资料对登录用户可见；草稿和归档元信息按归属/管理员权限读取，历史报告引用片段可通过片段接口读取。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          }
+        ]
+      }
+    },
+    "/documents/{id}": {
+      "get": {
+        "operationId": "getKnowledgeDocument",
+        "summary": "读取知识资料详情",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocument"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/rubrics": {
+      "get": {
+        "operationId": "listRubric",
+        "summary": "评分规则列表",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅返回当前账号可访问的记录，创建时间倒序。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          }
+        ]
+      }
+    },
+    "/rubrics/{id}": {
+      "get": {
+        "operationId": "getRubric",
+        "summary": "读取评分规则详情",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rubric"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/samples/{id}/versions": {
+      "get": {
+        "operationId": "listSampleVersions",
+        "summary": "读取样本历史快照",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "版本倒序，不分页；需对当前样本有读取权限。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/jobs": {
+      "post": {
+        "operationId": "createJob",
+        "summary": "创建真实AI分析任务",
+        "tags": [
+          "AI任务"
+        ],
+        "responses": {
+          "202": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AIUnavailable"
+          }
+        },
+        "description": "仅处理本人样本；learning_session_id若指定则使用该轮次快照。先保存任务再启动后台处理，浏览器断开不取消任务；结果仅通过结构、范围、引用校验后落库。 coaching在任务创建时冻结服务端匹配的当前/上一轮教学记录和任务目标，忽略客户端history。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listJobs",
+        "summary": "查询授权范围内的异步任务",
+        "tags": [
+          "AI任务"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ]
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "operationId": "getJob",
+        "summary": "查询任务状态与结果ID",
+        "tags": [
+          "AI任务"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/jobs/{id}/cancel": {
+      "post": {
+        "operationId": "cancelJob",
+        "summary": "取消自己的任务",
+        "tags": [
+          "AI任务"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "本人或管理员可取消。已经终结的任务保持原状态；取消后迟到的模型响应不能保存成成功报告。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/jobs/{id}/events": {
+      "get": {
+        "operationId": "streamJobEvents",
+        "summary": "订阅标准SSE任务事件",
+        "tags": [
+          "AI任务"
+        ],
+        "responses": {
+          "200": {
+            "description": "标准 Server-Sent Events 字节流。",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "id: 1\nevent: progress\ndata: {\"code\":\"queued\",\"label\":\"等待处理\",\"at\":\"2026-10-08T12:00:00Z\",\"elapsed_ms\":0}\n\nid: 2\nevent: progress\ndata: {\"code\":\"model_waiting\",\"label\":\"等待模型响应\",\"at\":\"2026-10-08T12:00:01Z\",\"elapsed_ms\":180,\"attempt\":1}\n\nid: 3\nevent: completed\ndata: {\"job_id\":\"job-1\",\"report_id\":\"report-1\",\"result_id\":\"report-1\",\"result_kind\":\"reports\",\"finished_at\":\"2026-10-08T12:00:10Z\",\"timings\":{\"queue_ms\":100,\"total_ms\":9100,\"model_ms\":8700}}\n\n"
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "需登录且有该任务权限。每个事件包含id/event/data，data为JSON。Last-Event-ID优先于after；从游标之后回放，无游标从0开始。断线不取消任务，任务终结且回放完毕后关闭。progress为实际结构化阶段及毫秒计时，兼容delta安全文字；不发送未校验模型正文。完整报告通过result_id获取。: heartbeat为注释。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "任务内最后已接收序号。"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "不能设置头时可使用该游标。"
+          }
+        ],
+        "x-sse-events": {
+          "status": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/JobDeltaEvent"
+          },
+          "completed": {
+            "$ref": "#/components/schemas/JobCompletedEvent"
+          },
+          "error": {
+            "$ref": "#/components/schemas/JobErrorEvent"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/JobProgress"
+          }
+        }
+      }
+    },
+    "/reports/{id}/revisions": {
+      "post": {
+        "operationId": "createRevision",
+        "summary": "保存学生采用或完整修正稿",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "description": "仅报告所有者。base_version等于Report.revision_no，初始为0；成功后revision_no递增，原data/original_data不变。本轮规则文字和解释只影响当前修正。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listRevisions",
+        "summary": "读取报告修正历史",
+        "tags": [
+          "学习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "按创建时间倒序，不分页。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/reports/{id}/review": {
+      "post": {
+        "operationId": "reviewReport",
+        "summary": "教师明确复核报告",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "仅所授班级教师/管理员；写独立复核记录并更新报告审核状态。查看与指导不能替代此动作，确认不代表实测验证。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{id}/reviews": {
+      "get": {
+        "operationId": "listReviews",
+        "summary": "读取复核记录",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "报告所有者、所授班级教师及管理员可读取，不分页。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/reports/{id}/viewed": {
+      "post": {
+        "operationId": "markViewed",
+        "summary": "记录教师已查看",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Viewed"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "仅教师/管理员。只写查看事件，不确认评分，不改变原报告。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/reports/{id}/feedback": {
+      "post": {
+        "operationId": "createFeedback",
+        "summary": "保存教师指导意见",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feedback"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "只保存指导，不设置复核确认。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listFeedback",
+        "summary": "读取教师指导记录",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "需要报告读取权限；不分页。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/practice-tasks/{id}/publish": {
+      "post": {
+        "operationId": "publishPracticeTask",
+        "summary": "发布训练任务",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTask"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "须已有有效分配对象；本人或管理员可发布。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/practice-tasks/{id}/complete": {
+      "post": {
+        "operationId": "completePracticeTask",
+        "summary": "记录本人的任务完成与反思",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeTask"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "只允许已发布且分配给本人的任务；不改变其他学生的进度。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PracticeComplete"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/practice-tasks/{id}/attempts": {
+      "post": {
+        "operationId": "createAttempt",
+        "summary": "提交本人练习回答",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Attempt"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttemptCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listAttempts",
+        "summary": "读取可见练习回答",
+        "tags": [
+          "练习"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "学生只读本人回答；任务创建者可读其任务回答，其他教师/管理员按授权读取。不分页。attempt仅含task_id/answer及公共元数据，不含learning_session_id；教师界面通过learning-sessions.task_id和owner_id关联轮次。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/atlas/{id}/publish": {
+      "post": {
+        "operationId": "publishAtlasEntry",
+        "summary": "管理员发布图谱",
+        "tags": [
+          "图库"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasEntry"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "description": "仅管理员。"
+      }
+    },
+    "/insights": {
+      "get": {
+        "operationId": "getInsights",
+        "summary": "读取真实历史学情统计",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Insights"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "默认统计全部授权历史，可按class_id、from、to筛选。from/to为RFC3339闭区间，分别按样本/报告/任务/修正的created_at判断；非法时间或开始晚于结束返回400。修正数按修正时间，分配完成数反映选中任务当前状态。不同规则文字与demo/real来源分组比较；include_demo=false排除示例。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "name": "include_demo",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            },
+            "description": "false时排除能识别为demo的样本、报告及任务；报告修正的示例归属按原报告判断。"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "可选RFC3339闭区间边界。"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "可选RFC3339闭区间边界。"
+          }
+        ]
+      }
+    },
+    "/teacher/submissions": {
+      "get": {
+        "operationId": "listTeacherSubmissions",
+        "summary": "读取教师待处理学习报告",
+        "tags": [
+          "教师"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPage"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "教师/管理员专用，按班级权限和过滤条件返回报告。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          },
+          {
+            "$ref": "#/components/parameters/ClassFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SampleFilter"
+          }
+        ]
+      }
+    },
+    "/classes": {
+      "get": {
+        "operationId": "listClasses",
+        "summary": "读取本人相关班级",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "不分页；学生只收到自身成员信息。"
+      }
+    },
+    "/admin/classes": {
+      "get": {
+        "operationId": "listAdminClasses",
+        "summary": "管理员读取所有班级",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅管理员。"
+      },
+      "post": {
+        "operationId": "createClass",
+        "summary": "创建班级",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Class"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassCreate"
+              }
+            }
+          }
+        },
+        "description": "仅管理员。"
+      }
+    },
+    "/admin/classes/{id}/members": {
+      "post": {
+        "operationId": "addClassMember",
+        "summary": "将账号加入班级",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OK"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassMemberRequest"
+              }
+            }
+          }
+        },
+        "description": "仅管理员。"
+      }
+    },
+    "/admin/classes/{id}/members/{user_id}": {
+      "delete": {
+        "operationId": "removeClassMember",
+        "summary": "移除班级成员关系",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OK"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "description": "仅管理员。"
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "管理员读取账号列表",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "description": "仅管理员。 不返回密码哈希或会话；当前不分页。"
+      },
+      "post": {
+        "operationId": "createUser",
+        "summary": "创建学生、教师或管理员账号",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "description": "仅管理员。"
+      }
+    },
+    "/admin/users/{id}": {
+      "patch": {
+        "operationId": "updateUser",
+        "summary": "更新账号并撤销其会话",
+        "tags": [
+          "班级账号"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "仅管理员。 不可停用或降级当前操作管理员，以免自我锁定。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/rubrics": {
+      "post": {
+        "operationId": "createRubric",
+        "summary": "创建评分规则版本草稿",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "201": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rubric"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RubricCreate"
+              }
+            }
+          }
+        },
+        "description": "仅管理员。"
+      }
+    },
+    "/admin/rubrics/{id}/publish": {
+      "post": {
+        "operationId": "publishRubric",
+        "summary": "发布评分规则版本",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rubric"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "仅管理员。 新分析选择已发布规则并保存快照；历史报告规则不被改写。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/admin/documents": {
+      "post": {
+        "operationId": "importDocument",
+        "summary": "异步提取资料并创建待发布版本",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "202": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "description": "仅管理员。 管理员操作；文件需先上传。文档导入不调用模型。新版本使用replaces_document_id关联前版，提取成功后仍需明确发布。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentImport"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/documents/{id}/publish": {
+      "post": {
+        "operationId": "publishDocument",
+        "summary": "发布资料并归档所替代的旧版",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocument"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "description": "仅管理员。 发布是事务操作，若上一版已被另一新版本替换返回409。旧片段保留：有权访问引用它的历史报告者仍可查看该片段。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CSRFToken"
+          }
+        ]
+      }
+    },
+    "/documents/{id}/chunks": {
+      "get": {
+        "operationId": "listDocumentChunks",
+        "summary": "查看资料提取片段",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeChunkList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "按position升序，不分页；管理员可预览草稿。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/knowledge/chunks/{id}": {
+      "get": {
+        "operationId": "getKnowledgeChunk",
+        "summary": "打开引用证据片段",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeChunk"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "description": "已发布资料可读；归档片段只有资料所有者/管理员或有权读取其历史引用报告的用户可读。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        ]
+      }
+    },
+    "/knowledge/search": {
+      "get": {
+        "operationId": "searchKnowledge",
+        "summary": "检索当前已发布教学资料",
+        "tags": [
+          "教学资料"
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSearchResultList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestID"
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "description": "只检索当前已发布资料，最多6条，不支持分页。q使用中文单字/二元词与英文分词，并可匹配已索引标签。material_tag/phase_tag/process_tag各为一个精确标签筛选，类别之间AND；ASCII忽略大小写。q为空但存在标签时可仅筛选标签；所有条件均空返回空数组。标签与正文分开返回，不将标签表述为原文证据。",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "可选全文查询；全部查询条件为空时返回空数组。"
+          },
+          {
+            "name": "material_tag",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "材料精确标签，trim后匹配。"
+          },
+          {
+            "name": "phase_tag",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "组织精确标签，trim后匹配。"
+          },
+          {
+            "name": "process_tag",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "工艺精确标签，trim后匹配。"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "zhiwei_session",
+        "description": "登录接口设置的HttpOnly会话cookie；最长7天，账号更改可撤销。"
+      }
+    },
+    "parameters": {
+      "CSRFToken": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "取登录/会话接口返回的csrf_token。所有已登录POST/PATCH/DELETE必填，且Origin必须同源或在显式允许列表。"
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 500
+        },
+        "description": "默认100，上限500；无效值使用默认100。"
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0
+        },
+        "description": "按最近创建倒序的偏移。超出总数时截断到total；非正数或无效值按0。"
+      },
+      "ClassFilter": {
+        "name": "class_id",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "进一步筛选班级，不扩大当前账号权限。"
+      },
+      "SampleFilter": {
+        "name": "sample_id",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "筛选关联样本。"
+      },
+      "Search": {
+        "name": "q",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        },
+        "description": "不区分大小写的记录内容子串筛选。"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "请求字段、文件类型、评分或状态不符合要求。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "invalid_revision",
+                "message": "请提交完整修正稿和修正理由"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "未登录、账号停用或会话失效。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "unauthorized",
+                "message": "请先登录"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "权限或CSRF/来源校验失败。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "forbidden",
+                "message": "无权执行此操作"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "NotFound": {
+        "description": "资源不存在，或当前账号没有访问权限。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "not_found",
+                "message": "记录不存在"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "Conflict": {
+        "description": "修订版本、资料版本或幂等请求冲突。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "version_conflict",
+                "message": "报告已更新，请刷新后重新提交"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "InternalError": {
+        "description": "持久化或服务错误。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "storage_error",
+                "message": "数据保存失败，请重试"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      },
+      "AIUnavailable": {
+        "description": "尚未配置独立AI模型，不会返回模拟报告。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "ai_not_configured",
+                "message": "尚未配置AI模型，请联系管理员"
+              }
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "所有业务错误使用此结构；上游模型正文、密钥和数据库详情不会返回。"
+      },
+      "OK": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "username": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "admin"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "role",
+          "disabled"
+        ]
+      },
+      "AuthSession": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "csrf_token": {
+            "type": "string",
+            "description": "登录后用于所有写请求的 X-CSRF-Token；未登录为空。"
+          },
+          "ai_configured": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user",
+          "csrf_token",
+          "ai_configured"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "UserCreate": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "description": "3–80 UTF-8 字节，不含空白。"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "10–72 UTF-8 字节。"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "留空时使用用户名。"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "admin"
+            ]
+          }
+        },
+        "required": [
+          "username",
+          "password",
+          "role"
+        ]
+      },
+      "UserPatch": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "admin"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "如填写则为10–72 UTF-8 字节；修改后撤销该账号全部会话。"
+          }
+        }
+      },
+      "Class": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/User"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "members"
+        ],
+        "description": "学生只收到自己的成员记录；教师和管理员可见授权班级成员。"
+      },
+      "ClassCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ClassMemberRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "FileAsset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20971520
+          },
+          "url": {
+            "type": "string",
+            "description": "同源且需要登录的 /api/v1/files/{id} 地址。"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mime",
+          "size",
+          "url"
+        ]
+      },
+      "SampleCreate": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "process": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "magnification": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "etchant": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "class_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "material",
+          "process",
+          "magnification",
+          "etchant"
+        ],
+        "description": "可使用本人上传文件；已发布图谱图片会复制为独立学习文件并保留示例来源。",
+        "examples": [
+          {
+            "title": "45钢 第一次练习",
+            "file_id": "file-example-id",
+            "material": "45钢",
+            "process": "未知",
+            "magnification": "500×",
+            "etchant": "未知"
+          }
+        ]
+      },
+      "SamplePatch": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "process": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "magnification": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "etchant": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "当前接口忽略此字段，不用于样本并发控制；报告修正的base_version才具有409冲突语义。"
+          }
+        },
+        "description": "更新图像或背景会保存新版本，已有学习轮次和报告保持旧快照。"
+      },
+      "Sample": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "process": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "magnification": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "etchant": {
+            "type": "string",
+            "minLength": 1,
+            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean"
+          },
+          "source_atlas_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "file_id",
+          "material",
+          "process",
+          "magnification",
+          "etchant",
+          "image_url",
+          "demo"
+        ]
+      },
+      "LearningSessionCreate": {
+        "type": "object",
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "parent_session_id": {
+            "type": "string",
+            "description": "本人上一轮学习记录 ID。"
+          },
+          "task_id": {
+            "type": "string",
+            "description": "已经发布并分配给本人的练习任务 ID。"
+          }
+        },
+        "required": [
+          "sample_id"
+        ]
+      },
+      "LearningSessionPatch": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "atlas",
+              "assessment",
+              "understanding",
+              "practice"
+            ]
+          },
+          "completed": {
+            "type": "boolean"
+          }
+        },
+        "description": "completed=true 必须已有本轮评图与五维理解报告，并分别保存至少一次采用/修正稿；成功后生成个人图谱条目。"
+      },
+      "LearningSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "completed"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string",
+            "enum": [
+              "atlas",
+              "assessment",
+              "understanding",
+              "practice"
+            ]
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "parent_session_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "sample_snapshot": {
+            "$ref": "#/components/schemas/Sample"
+          },
+          "sample_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "personal_atlas_id": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "沿样本快照保留教学示例标志，不自动变成真实实验记录。"
+          },
+          "source_atlas_id": {
+            "type": "string",
+            "description": "来源为已发布图谱时保留原条目ID。"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "sample_id",
+          "step",
+          "completed",
+          "sample_snapshot",
+          "sample_version"
+        ]
+      },
+      "RubricCriterion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "scratches",
+              "artifacts",
+              "etching",
+              "clarity"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "max_score": {
+            "const": 25
+          },
+          "rule_text": {
+            "type": "string",
+            "description": "评分细则说明。"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "max_score"
+        ]
+      },
+      "RubricSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterion"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "demo": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "criteria"
+        ],
+        "description": "报告保存当时规则快照；未发布规则时使用明确标注的教学示例四项规则。"
+      },
+      "Rubric": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterion"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "demo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "title",
+          "criteria"
+        ]
+      },
+      "RubricCreate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterion"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "demo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "criteria"
+        ],
+        "description": "四个固定 ID 各出现一次，满分均为25；创建新规则版本，不改写历史报告。"
+      },
+      "Source": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content"
+        ],
+        "description": "实际检索得到的资料片段快照；报告可能检索多个来源，实际引用 ID 见 data.citations。"
+      },
+      "KnowledgeSearchResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "document_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "material_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "phase_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "process_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content",
+          "document_id",
+          "document_version"
+        ]
+      },
+      "KnowledgeChunk": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "文档片段顺序，从0开始；单片段详情可不包含。"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content",
+          "document_id"
+        ]
+      },
+      "BoundingBox": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "width": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "height": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "description": "可选的模型观察矩形：左上角为原点，x/width按整图宽度归一化，y/height按整图高度归一化。提供bbox时四个字段必须是明确数字；x+width<=1且y+height<=1。结构合法不证明定位准确，不是像素级分割。",
+        "additionalProperties": false
+      },
+      "Defect": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "uncertain"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "suggestion": {
+            "type": "string"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/BoundingBox"
+          }
+        },
+        "required": [
+          "name",
+          "severity",
+          "evidence",
+          "suggestion"
+        ]
+      },
+      "Criterion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "scratches",
+              "artifacts",
+              "etching",
+              "clarity"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 25,
+            "description": "无法观察时为null，不能用0代替。"
+          },
+          "max_score": {
+            "const": 25
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rule_text": {
+            "type": "string",
+            "description": "学生本轮修改的规则解释，只有修正稿可含此字段。"
+          },
+          "description": {
+            "type": "string"
+          },
+          "rule_description": {
+            "type": "string",
+            "description": "个人修正稿可使用的评分细则别名；优先级在rule_text与description之后。"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "score",
+          "max_score",
+          "evidence"
+        ]
+      },
+      "AssessmentData": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            },
+            "uniqueItems": true
+          },
+          "final_phase": {
+            "type": "string",
+            "description": "学生修正稿的最终组织判断。"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phase_reason": {
+            "type": "string",
+            "description": "学生修正稿的组织判断理由。"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Criterion"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "defects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Defect"
+            }
+          },
+          "total_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "服务端求和；有任何不可观察项时为null。"
+          },
+          "max_score": {
+            "const": 100
+          },
+          "coverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "rubric_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "criteria",
+          "defects",
+          "limitations",
+          "citations",
+          "total_score",
+          "max_score",
+          "coverage"
+        ],
+        "description": "仅作为学习反馈；不是正式竞赛评分。模型总分会被服务端覆盖。"
+      },
+      "Candidate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "uncertainty": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "evidence",
+          "uncertainty"
+        ]
+      },
+      "Dimension": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "成分",
+              "工艺",
+              "组织",
+              "性能",
+              "应用"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "known",
+              "observed",
+              "inferred"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "content",
+          "basis"
+        ],
+        "description": "known=明确提供的背景；observed=图像可见证据；inferred=需要验证的推断。"
+      },
+      "UnderstandingData": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            },
+            "uniqueItems": true
+          },
+          "final_phase": {
+            "type": "string",
+            "description": "学生修正稿的最终组织判断。"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phase_reason": {
+            "type": "string",
+            "description": "学生修正稿的组织判断理由。"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "minItems": 1,
+            "maxItems": 5
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "summary",
+          "candidates",
+          "dimensions",
+          "questions",
+          "limitations",
+          "citations"
+        ],
+        "description": "五个维度各出现一次；性能与应用为带前提的定性参考，不声称实测硬度或相比例。"
+      },
+      "CoachingData": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            },
+            "uniqueItems": true
+          },
+          "final_phase": {
+            "type": "string",
+            "description": "学生修正稿的最终组织判断。"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phase_reason": {
+            "type": "string",
+            "description": "学生修正稿的组织判断理由。"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verification_plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "summary",
+          "questions",
+          "suggestions",
+          "verification_plan",
+          "limitations",
+          "citations"
+        ]
+      },
+      "ReportData": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AssessmentData"
+          },
+          {
+            "$ref": "#/components/schemas/UnderstandingData"
+          },
+          {
+            "$ref": "#/components/schemas/CoachingData"
+          }
+        ],
+        "description": "由 Report.kind 决定结构：assessment→AssessmentData；understanding/identify→UnderstandingData；coaching→CoachingData。"
+      },
+      "RevisionCreate": {
+        "type": "object",
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "必须等于读取到的 Report.revision_no，初始为0；不等于实体version。"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "description": "可选，写入 data.final_phase。"
+          }
+        },
+        "required": [
+          "base_version",
+          "data",
+          "reason"
+        ],
+        "description": "保存完整学生修正稿与理由；base_version必须等于当前revision_no，初次为0，否则409。个人规则文字和得分不修改公共规则，服务端重算总分。客户端bbox不受信：仅同序同名缺陷继承有效原框，其它条目移除定位；AI原稿保持不变。",
+        "examples": [
+          {
+            "base_version": 0,
+            "reason": "核对可见划痕后保留AI建议，补充下一轮对照拍摄。",
+            "data": {
+              "summary": "当前仅能依据图像给出学习参考。",
+              "criteria": [
+                {
+                  "id": "scratches",
+                  "label": "划痕",
+                  "score": null,
+                  "max_score": 25,
+                  "evidence": "示例：图像信息不足，请补充证据。"
+                },
+                {
+                  "id": "artifacts",
+                  "label": "假象",
+                  "score": null,
+                  "max_score": 25,
+                  "evidence": "示例：图像信息不足，请补充证据。"
+                },
+                {
+                  "id": "etching",
+                  "label": "侵蚀程度",
+                  "score": null,
+                  "max_score": 25,
+                  "evidence": "示例：图像信息不足，请补充证据。"
+                },
+                {
+                  "id": "clarity",
+                  "label": "组织清晰与正确度",
+                  "score": null,
+                  "max_score": 25,
+                  "evidence": "示例：图像信息不足，请补充证据。"
+                }
+              ],
+              "defects": [],
+              "limitations": [
+                "接口结构示例，不代表实际AI分析。"
+              ],
+              "citations": [],
+              "total_score": null,
+              "max_score": 100,
+              "coverage": 0
+            }
+          }
+        ]
+      },
+      "Revision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "saved"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "revision_no": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "report_id",
+          "data",
+          "reason",
+          "revision_no"
+        ]
+      },
+      "ReviewCreate": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "needs_revision"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "corrected_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "description": "教师明确复核独立保存；不会覆盖 AI 原稿。教师确认不代表实验已验证。"
+      },
+      "Review": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "saved"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "needs_revision"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "corrected_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "report_id",
+          "decision"
+        ]
+      },
+      "FeedbackCreate": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "comment"
+        ]
+      },
+      "Feedback": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "saved"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "report_id",
+          "comment"
+        ]
+      },
+      "Viewed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "saved"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "report_id"
+        ]
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "reviewed"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "assessment",
+              "understanding",
+              "identify",
+              "coaching"
+            ]
+          },
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "sample_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sample_snapshot": {
+            "$ref": "#/components/schemas/Sample"
+          },
+          "job_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "learning_session_id": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "original_data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "revision_no": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "latest_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Revision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_review": {
+            "$ref": "#/components/schemas/Review"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "description": "经模型明确引用的来源快照；ID与data.citations对应。"
+          },
+          "rubric": {
+            "$ref": "#/components/schemas/RubricSnapshot"
+          },
+          "model": {
+            "type": "string"
+          },
+          "prompt_version": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "沿样本快照保留教学示例标志，不自动变成真实实验记录。"
+          },
+          "source_atlas_id": {
+            "type": "string",
+            "description": "来源为已发布图谱时保留原条目ID。"
+          },
+          "retrieved_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "description": "本次实际检索到的全部候选来源，不等同于已引用证据。"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "本次任务开始/结束的服务端记录时间；旧报告可缺省。"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "本次任务开始/结束的服务端记录时间；旧报告可缺省。"
+          },
+          "timings": {
+            "$ref": "#/components/schemas/JobTimings"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "kind",
+          "sample_id",
+          "sample_version",
+          "sample_snapshot",
+          "job_id",
+          "data",
+          "original_data",
+          "revision_no",
+          "latest_revision",
+          "sources",
+          "rubric",
+          "model",
+          "prompt_version"
+        ]
+      },
+      "ConversationTurn": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ]
+      },
+      "JobInput": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "student_judgment": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "description": "仅question/answer/student_judgment/target/reason作为客户端教学输入。sample_snapshot和rubric由服务端填写。coaching上下文从当前样本/轮次匹配的最新评图、五维修正和上一轮报告及任务目标冻结；客户端history不作为证据。"
+      },
+      "JobCreate": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "assessment",
+              "understanding",
+              "identify",
+              "coaching"
+            ]
+          },
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "learning_session_id": {
+            "type": "string"
+          },
+          "input": {
+            "$ref": "#/components/schemas/JobInput"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "kind",
+          "sample_id",
+          "idempotency_key"
+        ],
+        "description": "同一账号+幂等键+相同完整请求返回原任务；不同输入复用键返回409。重试失败任务时明确提交新幂等键，不自动重新计费。",
+        "examples": [
+          {
+            "kind": "assessment",
+            "sample_id": "sample-example-id",
+            "learning_session_id": "session-example-id",
+            "input": {
+              "question": "哪些可见问题值得下一轮优先改进？"
+            },
+            "idempotency_key": "assessment-example-20261007"
+          }
+        ]
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "class_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "assessment",
+              "understanding",
+              "identify",
+              "coaching",
+              "document_import"
+            ]
+          },
+          "sample_id": {
+            "type": "string"
+          },
+          "learning_session_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "result_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "旧任务可缺省。"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "旧任务可缺省。"
+          },
+          "error_code": {
+            "type": "string",
+            "description": "稳定的安全错误分类；成功或旧任务可缺省。"
+          },
+          "origin_request_id": {
+            "type": "string",
+            "description": "创建任务的HTTP请求关联ID，用于终端日志定位，不授予访问权限。"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/JobProgress"
+          },
+          "progress_history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobProgress"
+            }
+          },
+          "timings": {
+            "$ref": "#/components/schemas/JobTimings"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "kind",
+          "sample_id",
+          "learning_session_id",
+          "status",
+          "stage",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "input、lease和模型凭证不在响应中；result_id指向reports或documents。阶段/耗时是实际执行记录，旧任务可缺省；原始模型正文只受后端日志开关控制，不通过Job/SSE暴露。"
+      },
+      "JobDeltaEvent": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "经过脱敏的处理阶段文本；不是未校验的模型原始JSON。"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "JobCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "report_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "result_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "result_kind": {
+            "type": "string",
+            "enum": [
+              "reports",
+              "documents"
+            ]
+          },
+          "timings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobTimings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "实际采集的计时；未采集时可为null。"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "job_id",
+          "report_id",
+          "result_id",
+          "result_kind"
+        ],
+        "description": "report_id 是兼容别名；文档导入应使用 result_kind 与 result_id 打开结果。"
+      },
+      "JobErrorEvent": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "failed",
+              "cancelled"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "timings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobTimings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "实际采集的计时；未采集时可为null。"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "Assignment": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed"
+            ]
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reflection": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "status"
+        ],
+        "description": "教师记录以已完成分配为主；学生响应可包含status=open的本人待完成分配。"
+      },
+      "PracticeCreate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "sample_id": {
+            "type": "string"
+          },
+          "report_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string"
+          },
+          "assignee_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ]
+          },
+          "due_at": {
+            "type": "string",
+            "description": "建议RFC3339；当前按提交字符串保存。"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "description": "教师可给所授班级或指定学生创建草稿/发布任务。学生自建只分配本人，直接发布。"
+      },
+      "PracticePatch": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "due_at": {
+            "type": "string"
+          },
+          "assignee_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          }
+        },
+        "description": "只编辑标题、内容、截止时间和分配对象；发布与完成分别使用专用接口。"
+      },
+      "PracticeComplete": {
+        "type": "object",
+        "properties": {
+          "reflection": {
+            "type": "string"
+          }
+        }
+      },
+      "PracticeTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "sample_id": {
+            "type": "string"
+          },
+          "report_id": {
+            "type": "string"
+          },
+          "assignee_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Assignment"
+            }
+          },
+          "due_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "title",
+          "assignee_ids",
+          "assignments"
+        ],
+        "description": "学生响应只包含本人的分配和完成信息。任务整体状态不会因为某个学生完成而改为completed。"
+      },
+      "AttemptCreate": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "answer"
+        ]
+      },
+      "Attempt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "submitted"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "task_id",
+          "answer"
+        ],
+        "description": "保存学生回答；没有调用AI就不会产生自动批改结果。"
+      },
+      "AtlasEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "magnification": {
+            "type": "string"
+          },
+          "etchant": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "title",
+          "demo"
+        ],
+        "description": "管理员审核发布的公共图谱；demo=true 表示教学示例而非真实实验结果。"
+      },
+      "AtlasCreate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "magnification": {
+            "type": "string"
+          },
+          "etchant": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "AtlasPatch": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "magnification": {
+            "type": "string"
+          },
+          "etchant": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "description": "编辑已发布图谱会恢复草稿状态，需管理员再次发布。"
+      },
+      "PersonalAtlas": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "const": "private"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "sample_snapshot": {
+            "$ref": "#/components/schemas/Sample"
+          },
+          "learning_session_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "report_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+            }
+          },
+          "reports": {
+            "type": "object",
+            "properties": {
+              "assessment": {
+                "$ref": "#/components/schemas/Report"
+              },
+              "understanding": {
+                "$ref": "#/components/schemas/Report"
+              }
+            },
+            "required": [
+              "assessment",
+              "understanding"
+            ]
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "沿样本快照保留教学示例标志，不自动变成真实实验记录。"
+          },
+          "source_atlas_id": {
+            "type": "string",
+            "description": "来源为已发布图谱时保留原条目ID。"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "sample_id",
+          "sample_snapshot",
+          "learning_session_id",
+          "report_ids",
+          "reports",
+          "demo"
+        ],
+        "description": "从本人完成的学习轮次创建，不自动加入公共知识库或模型训练。"
+      },
+      "KnowledgeDocument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string",
+            "description": "未关联班级时为空字符串。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "archived"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "demo": {
+            "type": "boolean"
+          },
+          "document_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replaces_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replaced_by": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "material_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "phase_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "process_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "本次任务开始/结束的服务端记录时间；旧报告可缺省。"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "本次任务开始/结束的服务端记录时间；旧报告可缺省。"
+          },
+          "timings": {
+            "$ref": "#/components/schemas/JobTimings"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "class_id",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "title",
+          "content",
+          "chunk_count",
+          "demo"
+        ],
+        "description": "发布新版本时同事务归档上一版本；旧引用内容保留，只有当前发布版本进入新检索。文档版本document_version与通用实体version分别计数。"
+      },
+      "DocumentImport": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1
+          },
+          "replaces_document_id": {
+            "type": "string",
+            "description": "明确指向当前已发布资料，导入失败不会替换旧版。"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "建议提供稳定键防止重复导入；不提供时服务端生成新键。"
+          },
+          "material_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "phase_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          },
+          "process_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 12,
+            "description": "最多12项，每项1至64字；trim并忽略大小写去重；不得含控制字符。"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "description": "导入异步进行，无需配置AI；标题留空时取原文件名。扫描PDF要求OCR，加密PDF要求先解密。 可提供材料、组织、工艺标签，服务端保存到本次资料版本并加入FTS检索词；标签不会改写原文片段。",
+        "examples": [
+          {
+            "file_id": "file-document-example",
+            "title": "材料实验教学讲义",
+            "replaces_document_id": "previous-published-document",
+            "idempotency_key": "document-import-version-2"
+          }
+        ]
+      },
+      "ScoreHistoryPoint": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          }
+        },
+        "required": [
+          "date",
+          "score",
+          "sample_id"
+        ]
+      },
+      "ScoreGroup": {
+        "type": "object",
+        "properties": {
+          "rubric_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
+          },
+          "rubric_title": {
+            "type": "string"
+          },
+          "score_history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreHistoryPoint"
+            }
+          },
+          "average_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "score_group_id": {
+            "type": "string"
+          },
+          "rule_signature": {
+            "type": "string",
+            "description": "包含规则版本与本轮有效规则文字的确定性签名，不含得分与观察证据。"
+          },
+          "rules_modified": {
+            "type": "boolean"
+          },
+          "demo": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "demo",
+              "real"
+            ]
+          }
+        },
+        "required": [
+          "rubric_id",
+          "rubric_title",
+          "score_history",
+          "average_score",
+          "score_group_id",
+          "rule_signature",
+          "rules_modified",
+          "demo",
+          "source"
+        ],
+        "description": "规则签名及示例/真实来源共同决定分组；同一规则版本中修改个人规则文字也会产生独立趋势。"
+      },
+      "DefectCount": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "count"
+        ]
+      },
+      "Insights": {
+        "type": "object",
+        "properties": {
+          "sample_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "report_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending_review_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "practice_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "所选created_at范围内的任务定义数，包括草稿。"
+          },
+          "completed_practice_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "上述任务中当前已发布、有分配且全部可见分配均完成的任务定义数；学生只检查本人分配。与practice_count统一按任务计数。"
+          },
+          "average_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅存在一个可比较组时返回该组均分；无数据或多组时为null，不混合不同规则或示例/真实记录。"
+          },
+          "score_history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreHistoryPoint"
+            },
+            "description": "仅存在一个可比较组时返回该组历史，否则空数组；请使用score_groups。"
+          },
+          "score_groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreGroup"
+            }
+          },
+          "defects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefectCount"
+            }
+          },
+          "period": {
+            "$ref": "#/components/schemas/InsightPeriod"
+          },
+          "revision_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "时间范围内revision记录数；按修正自身created_at筛选，不要求原报告也在该时间范围。"
+          },
+          "revised_report_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "这些修正涉及的不同报告数。"
+          },
+          "assignment_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "所选时间内创建且当前已发布任务的当前分配人次；学生只计本人。"
+          },
+          "completed_assignment_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "上述分配中当前已完成的人次；完成状态本身不再按完成时间筛选。"
+          }
+        },
+        "required": [
+          "sample_count",
+          "report_count",
+          "pending_review_count",
+          "practice_count",
+          "completed_practice_count",
+          "average_score",
+          "score_history",
+          "score_groups",
+          "defects",
+          "period",
+          "revision_count",
+          "revised_report_count",
+          "assignment_count",
+          "completed_assignment_count"
+        ],
+        "description": "按权限与class_id过滤真实记录，可用from/to限制created_at闭区间，默认全部历史；不是定时汇总表。完整可观察成绩按规则签名及demo/real来源分组。"
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "ai_configured": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "storage": {
+            "const": "sqlite"
+          },
+          "document_formats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "txt",
+                "md",
+                "pdf",
+                "docx"
+              ]
+            }
+          },
+          "runtime": {
+            "const": "independent"
+          }
+        },
+        "required": [
+          "ai_configured",
+          "model",
+          "storage",
+          "document_formats",
+          "runtime"
+        ],
+        "description": "模型密钥、完整API地址及其配置内容不会暴露。"
+      },
+      "UserList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/User"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ClassList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Class"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "KnowledgeChunkList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChunk"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "KnowledgeSearchResultList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeSearchResult"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "RevisionList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Revision"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ReviewList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Review"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "FeedbackList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Feedback"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "SampleList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Sample"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "AttemptList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attempt"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "SamplePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Sample"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "LearningSessionPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LearningSession"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "ReportPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Report"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "PracticeTaskPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PracticeTask"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "AtlasEntryPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AtlasEntry"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "PersonalAtlasPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonalAtlas"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "KnowledgeDocumentPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDocument"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "RubricPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Rubric"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "JobPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "权限和过滤条件筛选后的总条数。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际偏移，超出总数时截断到 total。"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "InsightPeriod": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "UTC RFC3339边界；未指定时为空字符串。"
+          },
+          "to": {
+            "type": "string",
+            "description": "UTC RFC3339边界；未指定时为空字符串。"
+          },
+          "label": {
+            "type": "string",
+            "enum": [
+              "全部记录",
+              "所选时间范围"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "label"
+        ]
+      },
+      "JobProgress": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "preparing",
+              "retrieving",
+              "model_waiting",
+              "model_receiving",
+              "validating",
+              "repairing",
+              "persisting",
+              "extracting",
+              "chunking",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "从开始处理任务计算的实际经过时间，单位毫秒；排队阶段可为0。"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "有模型调用时的调用序号，包含最多一次格式修复。"
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "文档切片等有真实计数时的已处理数量；不提供模拟模型完成百分比。"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "对应completed的真实总数量。"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "at",
+          "elapsed_ms"
+        ],
+        "description": "实际处理阶段，不是模拟百分比。completed/total只在处理器有真实计数时提供；不表示金相识别置信度。"
+      },
+      "StageTiming": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "preparing",
+              "retrieving",
+              "model_waiting",
+              "model_receiving",
+              "validating",
+              "repairing",
+              "persisting",
+              "extracting",
+              "chunking",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "该阶段的实际耗时，毫秒。"
+          }
+        },
+        "required": [
+          "code",
+          "duration_ms"
+        ]
+      },
+      "ModelCallTiming": {
+        "type": "object",
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "一次实际模型调用耗时，含等待和接收。"
+          },
+          "first_content_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "本次调用开始后首次接收到内容的经过时间；没有收到内容时缺省。"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "仅在服务商实际返回该用量时提供；缺省不等于0。"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "仅在服务商实际返回该用量时提供；缺省不等于0。"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "仅在服务商实际返回该用量时提供；缺省不等于0。"
+          }
+        },
+        "required": [
+          "attempt",
+          "duration_ms"
+        ],
+        "description": "区分首次生成和格式修复；运行中取消时可保存尚未返回调用截至取消的耗时，而非未来完整时长。不包含正文、图片、密钥或费用推算。"
+      },
+      "JobTimings": {
+        "type": "object",
+        "properties": {
+          "queue_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "任务入队到开始处理的时间，毫秒。"
+          },
+          "total_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "从开始处理至准备提交结果时的计时快照，毫秒；不包含排队或最终数据库事务提交。"
+          },
+          "model_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "各次实际模型调用已消耗时长之和，毫秒；运行中取消包含未返回调用截至取消时刻的快照。"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageTiming"
+            }
+          },
+          "model_calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCallTiming"
+            }
+          }
+        },
+        "description": "实际阶段和调用计时；finished_at由终态写入时记录，因此时间戳之差和total_ms可略有差异。旧记录可没有整个对象。缺省不等于零。",
+        "required": [
+          "total_ms",
+          "model_ms"
+        ]
+      }
+    },
+    "headers": {
+      "RequestID": {
+        "description": "服务端生成的HTTP请求关联ID，用于终端日志定位，不授予访问权限。",
+        "schema": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
