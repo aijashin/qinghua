@@ -13,8 +13,11 @@ import (
 func validateBackground(v store.Entity) error {
 	for _, key := range []string{"material", "process", "magnification", "etchant"} {
 		s, ok := v[key].(string)
-		if !ok || strings.TrimSpace(s) == "" || len(s) > 2000 {
-			return errors.New("材料、工艺、倍率和腐蚀剂需要填写；不清楚请填“未知”")
+		if !ok {
+			continue
+		}
+		if len(s) > 2000 {
+			return errors.New("材料详情单项最多2000字")
 		}
 	}
 	return nil

@@ -92,7 +92,7 @@ export default function App() {
     <aside className="sidebar">
       <button className="brand" onClick={() => navigate('learning')} aria-label="返回学习工作台">
         <span className="brand-icon"><Microscope size={25} strokeWidth={1.5} /></span>
-        <span><strong>见微知著</strong><small>金相学习工作台</small></span>
+        <span><strong>见微知著</strong><small>金相组织制备与观察评测分析AI优化系统</small></span>
       </button>
       <nav aria-label="工作台导航">
         <div className="nav-group">
@@ -141,7 +141,7 @@ function Login({ onLogin, error: outerError }: { onLogin: (session: AuthSession)
   async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); try { onLogin(await request<AuthSession>('/auth/login', { method: 'POST', body: { username, password } })) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) } }
   return <main className="login-page">
     <section className="login-story">
-      <div className="brand"><span className="brand-icon"><Microscope size={26} strokeWidth={1.5} /></span><span><strong>见微知著</strong><small>金相学习工作台</small></span></div>
+      <div className="brand"><span className="brand-icon"><Microscope size={26} strokeWidth={1.5} /></span><span><strong>见微知著</strong><small>金相组织制备与观察评测分析AI优化系统</small></span></div>
       <div className="login-intro"><h1>从图像出发，<br />让判断<em>有据可循。</em></h1><p>记录样本，核对观察，把本次理解带回下一次实验。</p></div>
       <div className="login-trace">{steps.map((item, index) => <div key={item.id}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.name}</strong><small>{item.subtitle}</small></div>)}</div>
       <footer>观察 · 理解 · 求证</footer>

@@ -94,7 +94,7 @@ func (a *App) createSample(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid_background", e.Error())
 		return
 	}
-	fileID, sourceAtlas, demo, e := a.sampleImage(r, v.String("file_id"))
+	fileIDs, e := a.sampleImages(r, v["file_ids"], v.String("file_id"))
 	if e != nil {
 		fail(w, 400, "invalid_file", e.Error())
 		return
@@ -104,11 +104,17 @@ func (a *App) createSample(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "forbidden", "无权使用该班级")
 		return
 	}
-	d := copyFields(v, "title", "file_id", "material", "process", "magnification", "etchant")
-	d["file_id"] = fileID
-	d["image_url"] = "/api/v1/files/" + fileID
-	d["demo"] = demo
-	d["source_atlas_id"] = sourceAtlas
+	d := copyFields(v, "title", "material", "process", "magnification", "etchant")
+	imageURLs := make([]string, len(fileIDs))
+	for i, id := range fileIDs {
+		imageURLs[i] = "/api/v1/files/" + id
+	}
+	d["file_id"] = fileIDs[0]
+	d["file_ids"] = fileIDs
+	d["image_url"] = imageURLs[0]
+	d["image_urls"] = imageURLs
+	d["demo"] = false
+	d["source_atlas_id"] = ""
 	en, e := a.Store.Create(r.Context(), "samples", user(r).ID, v.String("class_id"), "active", d)
 	if e != nil {
 		dbError(w, e)
@@ -130,16 +136,22 @@ func (a *App) updateSample(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := copyFields(v, "title", "material", "process", "magnification", "etchant")
-	if fileID := v.String("file_id"); fileID != "" && fileID != old.String("file_id") {
-		newID, source, demo, e := a.sampleImage(r, fileID)
+	if v["file_ids"] != nil || v.String("file_id") != "" {
+		fileIDs, e := a.sampleImages(r, v["file_ids"], v.String("file_id"))
 		if e != nil {
 			fail(w, 400, "invalid_file", e.Error())
 			return
 		}
-		d["file_id"] = newID
-		d["image_url"] = "/api/v1/files/" + newID
-		d["source_atlas_id"] = source
-		d["demo"] = demo
+		imageURLs := make([]string, len(fileIDs))
+		for i, id := range fileIDs {
+			imageURLs[i] = "/api/v1/files/" + id
+		}
+		d["file_id"] = fileIDs[0]
+		d["file_ids"] = fileIDs
+		d["image_url"] = imageURLs[0]
+		d["image_urls"] = imageURLs
+		d["source_atlas_id"] = ""
+		d["demo"] = false
 	}
 
 	merged := store.Entity{}

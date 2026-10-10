@@ -62,3 +62,29 @@ func TestTeacherRecordsIdentityFiltersPaginationAndIsolation(t *testing.T) {
 		t.Fatal("student queried teacher records", code)
 	}
 }
+
+func TestTeacherRecordsSortByAssessmentScore(t *testing.T) {
+	a, student, _, teacher := setup(t)
+	ctx := context.Background()
+	_, _ = a.Store.DB.Exec(`INSERT INTO classes VALUES('score-class','评分演示班',?)`, store.Now())
+	for _, id := range []string{student.u.ID, teacher.u.ID} {
+		_, _ = a.Store.DB.Exec(`INSERT INTO class_members VALUES('score-class',?)`, id)
+	}
+	for _, score := range []float64{61, 92, 73} {
+		_, err := a.Store.Create(ctx, "reports", student.u.ID, "score-class", "pending_review", store.Entity{"kind": "assessment", "data": map[string]any{"total_score": score}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, result := teacher.call("GET", "/api/v1/teacher/submissions?sort=score_desc", nil)
+	if code != 200 {
+		t.Fatal(code, result)
+	}
+	items := result["items"].([]any)
+	if items[0].(map[string]any)["score"] != 92.0 || items[1].(map[string]any)["score"] != 73.0 || items[2].(map[string]any)["score"] != 61.0 {
+		t.Fatal("score sort failed", items)
+	}
+	if code, _ := teacher.call("GET", "/api/v1/teacher/submissions?sort=invalid", nil); code != 400 {
+		t.Fatal("invalid sort accepted", code)
+	}
+}

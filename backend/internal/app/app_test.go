@@ -239,6 +239,30 @@ func TestLegacyAtlasCannotBeCopiedToNewPractice(t *testing.T) {
 		t.Fatal("legacy example listed", code, got)
 	}
 }
+
+func TestSampleAcceptsMultipleImagesAndOptionalBackground(t *testing.T) {
+	a, student, _, _ := setup(t)
+	ids := []string{}
+	for i := 0; i < 3; i++ {
+		id := store.ID()
+		if _, err := a.Store.DB.Exec(`INSERT INTO files VALUES(?,?,?,?,?,?,?)`, id, student.u.ID, "view.png", "image/png", 1, id, store.Now()); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	code, sample := student.call("POST", "/api/v1/samples", map[string]any{"title": "多视场", "file_ids": ids})
+	if code != 201 || sample["file_id"] != ids[0] {
+		t.Fatal(code, sample)
+	}
+	got := sample["file_ids"].([]any)
+	if len(got) != 3 || sample["material"] != nil {
+		t.Fatal("multiple photos or optional background lost", sample)
+	}
+	tooMany := append(append([]string{}, ids...), ids[0], ids[1], ids[2], ids[0], ids[1], ids[2])
+	if code, _ := student.call("POST", "/api/v1/samples", map[string]any{"file_ids": tooMany}); code != 400 {
+		t.Fatal("too many or duplicate images accepted", code)
+	}
+}
 func TestTaskResponseDoesNotExposeOtherStudentReflection(t *testing.T) {
 	a, s1, s2, teacher := setup(t)
 	task, _ := a.Store.Create(context.Background(), "practice-tasks", teacher.u.ID, "", "published", store.Entity{"assignee_ids": []string{s1.u.ID, s2.u.ID}, "assignments": []any{map[string]any{"user_id": s2.u.ID, "status": "completed", "reflection": "私有内容"}}})

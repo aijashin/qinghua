@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"zhiwei/backend/internal/store"
@@ -28,6 +29,14 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	classID, studentID, search := query.Get("class_id"), query.Get("student_id"), strings.TrimSpace(query.Get("q"))
+	sortBy := query.Get("sort")
+	if sortBy == "" {
+		sortBy = "latest"
+	}
+	if sortBy != "latest" && sortBy != "score_desc" && sortBy != "score_asc" {
+		fail(w, 400, "invalid_sort", "排序方式仅支持 latest、score_desc 或 score_asc")
+		return
+	}
 	if classID != "" && !a.validClass(r, classID) {
 		fail(w, 403, "forbidden", "无权查看该班级记录")
 		return
@@ -67,8 +76,7 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		dbError(w, err)
 		return
 	}
-	pageArgs := append(append([]any{}, args...), limit, offset)
-	rows, err := tx.QueryContext(r.Context(), `SELECT e.data,u.display_name,u.username,COALESCE(c.name,'')`+from+` ORDER BY e.created_at DESC,e.id DESC LIMIT ? OFFSET ?`, pageArgs...)
+	rows, err := tx.QueryContext(r.Context(), `SELECT e.data,u.display_name,u.username,COALESCE(c.name,'')`+from+` ORDER BY e.created_at DESC,e.id DESC`, args...)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -94,6 +102,11 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		if snapshot, ok := item["sample_snapshot"].(map[string]any); ok {
 			item["sample_title"] = str(snapshot, "title")
 		}
+		if score, ok := reportScore(item); ok {
+			item["score"] = score
+		} else {
+			item["score"] = nil
+		}
 		items = append(items, item)
 	}
 	err = rows.Err()
@@ -106,5 +119,46 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		dbError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"items": items, "total": total, "limit": limit, "offset": offset})
+	if sortBy == "score_desc" || sortBy == "score_asc" {
+		sort.SliceStable(items, func(i, j int) bool {
+			left, lok := reportScore(items[i])
+			right, rok := reportScore(items[j])
+			if lok != rok {
+				return lok
+			}
+			if !lok {
+				return items[i].String("created_at") > items[j].String("created_at")
+			}
+			if left == right {
+				return items[i].String("created_at") > items[j].String("created_at")
+			}
+			if sortBy == "score_asc" {
+				return left < right
+			}
+			return left > right
+		})
+	}
+	if offset > len(items) {
+		offset = len(items)
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	respond(w, 200, map[string]any{"items": items[offset:end], "total": total, "limit": limit, "offset": offset, "sort": sortBy})
+}
+
+func reportScore(item map[string]any) (float64, bool) {
+	if revision, ok := item["latest_revision"].(map[string]any); ok {
+		if data, ok := revision["data"].(map[string]any); ok {
+			if score, ok := data["total_score"].(float64); ok {
+				return score, true
+			}
+		}
+	}
+	if data, ok := item["data"].(map[string]any); ok {
+		score, ok := data["total_score"].(float64)
+		return score, ok
+	}
+	return 0, false
 }

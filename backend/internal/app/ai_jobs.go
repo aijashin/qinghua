@@ -351,24 +351,36 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 			return jobs.Result{}, observability.Coded("rubric_required", errors.New("本任务缺少正式教学规则，请管理员发布规则后重新发起评图"))
 		}
 	}
-	fileID := str(snapshot, "file_id")
-	var mime, key, owner string
-	if e := a.Store.DB.QueryRowContext(ctx, `SELECT mime,path,owner_id FROM files WHERE id=?`, fileID).Scan(&mime, &key, &owner); e != nil || owner != j.OwnerID {
-		return jobs.Result{}, errors.New("图片无访问权限")
+	fileIDs := stringsArray(snapshot["file_ids"])
+	if len(fileIDs) == 0 && str(snapshot, "file_id") != "" {
+		fileIDs = []string{str(snapshot, "file_id")}
 	}
-	b, e := os.ReadFile(filepath.Join(a.Store.Dir, "files", key))
-	if e != nil {
-		return jobs.Result{}, errors.New("图片读取失败")
+	if len(fileIDs) == 0 || len(fileIDs) > 8 {
+		return jobs.Result{}, errors.New("样本图片数量应为1至8张")
 	}
 	if j.ClassID != "" && ownerRole != "admin" && !a.member(ctx, j.ClassID, j.OwnerID) {
 		return jobs.Result{}, observability.Coded("class_access_revoked", errors.New("本轮班级访问权限已变更"))
 	}
-	cfg, _, imageErr := image.DecodeConfig(bytes.NewReader(b))
-	if imageErr != nil {
-		return jobs.Result{}, errors.New("样本图片无法解码")
+	images := make([]ai.Image, 0, len(fileIDs)+4)
+	imageInfos := make([]observability.ImageInfo, 0, len(fileIDs)+4)
+	for i, fileID := range fileIDs {
+		var mime, key, owner string
+		if e := a.Store.DB.QueryRowContext(ctx, `SELECT mime,path,owner_id FROM files WHERE id=?`, fileID).Scan(&mime, &key, &owner); e != nil || owner != j.OwnerID {
+			return jobs.Result{}, errors.New("图片无访问权限")
+		}
+		b, readErr := os.ReadFile(filepath.Join(a.Store.Dir, "files", key))
+		if readErr != nil {
+			return jobs.Result{}, errors.New("图片读取失败")
+		}
+		cfg, _, imageErr := image.DecodeConfig(bytes.NewReader(b))
+		if imageErr != nil {
+			return jobs.Result{}, errors.New("样本图片无法解码")
+		}
+		role := fmt.Sprintf("当前样本图%d", i+1)
+		imageInfos = append(imageInfos, observability.ImageInfo{Role: role, MIME: mime, Bytes: len(b), Width: cfg.Width, Height: cfg.Height})
+		images = append(images, ai.Image{MIME: mime, Data: b, Label: fmt.Sprintf("当前待分析图片%d（同一样本，共%d张）", i+1, len(fileIDs))})
 	}
-	imageInfos := []observability.ImageInfo{{Role: "当前样本", MIME: mime, Bytes: len(b), Width: cfg.Width, Height: cfg.Height}}
-	if e = observability.Update(ctx, observability.Details{Images: imageInfos}, true); e != nil {
+	if e := observability.Update(ctx, observability.Details{Images: imageInfos}, true); e != nil {
 		return jobs.Result{}, e
 	}
 	terms := []string{}
@@ -378,7 +390,7 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 		}
 	}
 	query := strings.Join(terms, " ")
-	if e = observability.Stage(ctx, "retrieving", 0); e != nil {
+	if e := observability.Stage(ctx, "retrieving", 0); e != nil {
 		return jobs.Result{}, e
 	}
 	sources, e := a.retrieve(ctx, query)
@@ -389,11 +401,14 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 	if err != nil {
 		return jobs.Result{}, err
 	}
-	images := []ai.Image{{MIME: mime, Data: b, Label: "当前待分析图片（图1）；所有评分和标注只针对本图"}}
 	unavailable := 0
 	docCount := len(sources)
 	referenceCount := 0
 	for _, source := range references {
+		if len(images) >= 12 {
+			unavailable++
+			continue
+		}
 		img, err := a.referenceBytes(ctx, source.ID)
 		if err != nil || len(img.Data) > 10<<20 {
 			unavailable++
@@ -419,8 +434,13 @@ func (a *App) runJob(ctx context.Context, j jobs.Job, emit func(string) error) (
 	observability.Logger(ctx).Info("knowledge.retrieved", "document_count", docCount, "reference_count", referenceCount, "unavailable_images", unavailable)
 	safeSample := map[string]any{}
 	for _, key := range []string{"material", "process", "magnification", "etchant", "demo"} {
-		safeSample[key] = snapshot[key]
+		value := snapshot[key]
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+			value = "未提供"
+		}
+		safeSample[key] = value
 	}
+	safeSample["image_count"] = len(fileIDs)
 	safe := map[string]any{"sample": safeSample, "rubric": input["rubric"]}
 	for _, key := range []string{"question", "answer", "student_judgment", "target", "reason"} {
 		if v, yes := input[key]; yes {

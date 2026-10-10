@@ -100,6 +100,11 @@ func (c *Client) Generate(ctx context.Context, req Request, progress func(string
 	if err := validateRequest(req); err != nil {
 		return nil, err
 	}
+	preparedImages, err := prepareModelImages(req.Images)
+	if err != nil {
+		return nil, err
+	}
+	req.Images = preparedImages
 	ctx, cancel := context.WithTimeout(ctx, 2*c.config.Timeout)
 	defer cancel()
 	if err := emit(progress, "正在读取图像与已发布教学资料"); err != nil {
@@ -198,7 +203,7 @@ func validateRequest(req Request) error {
 	default:
 		return ErrInvalidRequest
 	}
-	if len(req.Input) > maxInputBytes || (len(req.Input) > 0 && !json.Valid(req.Input)) || len(req.Images) == 0 || len(req.Images) > 4 || len(req.Sources) > 20 {
+	if len(req.Input) > maxInputBytes || (len(req.Input) > 0 && !json.Valid(req.Input)) || len(req.Images) == 0 || len(req.Images) > 12 || len(req.Sources) > 20 {
 		return ErrInvalidRequest
 	}
 	if req.Kind == "assessment" {

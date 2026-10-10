@@ -114,10 +114,10 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 		for _, kind := range []string{"samples", "atlas", "documents", "personal-atlas", "learning-sessions", "reports"} {
 			entities, _ := a.Store.List(r.Context(), kind)
 			for _, en := range entities {
-				if en.String("file_id") == id && a.visible(r, kind, en) {
+				if entityHasFile(en, id) && a.visible(r, kind, en) {
 					allowed = true
 				}
-				if snap, ok := en["sample_snapshot"].(map[string]any); ok && str(snap, "file_id") == id && a.visible(r, kind, en) {
+				if snap, ok := en["sample_snapshot"].(map[string]any); ok && entityHasFile(snap, id) && a.visible(r, kind, en) {
 					allowed = true
 				}
 			}
@@ -135,6 +135,19 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": name}))
 	http.ServeFile(w, r, filepath.Join(a.Store.Dir, "files", key))
 }
+
+func entityHasFile(entity map[string]any, id string) bool {
+	if str(entity, "file_id") == id {
+		return true
+	}
+	for _, fileID := range stringsArray(entity["file_ids"]) {
+		if fileID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) ownedImage(r *http.Request, id string) error {
 	var owner, mt string
 	e := a.Store.DB.QueryRowContext(r.Context(), `SELECT owner_id,mime FROM files WHERE id=?`, id).Scan(&owner, &mt)
@@ -170,4 +183,31 @@ func (a *App) sampleImage(r *http.Request, id string) (string, string, bool, err
 		return "", "", false, fmt.Errorf("历史示例图片不能用于新练习，请上传真实照片")
 	}
 	return id, "", false, nil
+}
+
+// sampleImages validates an ordered group of student-owned photos. The first
+// photo remains file_id for backward compatibility with existing reports.
+func (a *App) sampleImages(r *http.Request, value any, fallback string) ([]string, error) {
+	ids := stringsArray(value)
+	if len(ids) == 0 && fallback != "" {
+		ids = []string{fallback}
+	}
+	if len(ids) == 0 || len(ids) > 8 {
+		return nil, fmt.Errorf("每组请上传1至8张金相图片")
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return nil, fmt.Errorf("图片列表包含空值或重复项")
+		}
+		valid, _, _, err := a.sampleImage(r, id)
+		if err != nil {
+			return nil, err
+		}
+		seen[valid] = true
+		out = append(out, valid)
+	}
+	return out, nil
 }

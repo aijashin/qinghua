@@ -2867,7 +2867,7 @@
             "$ref": "#/components/responses/BadRequest"
           }
         },
-        "description": "教师/管理员专用。仅学生报告，先应用班级权限，再按班级、学生、姓名或账号筛选，最后服务端分页。稳定按created_at/id倒序；返回学生姓名、账号、班级和样本名称。",
+        "description": "教师/管理员专用。仅学生报告，先应用班级权限，再按班级、学生、姓名或账号筛选，可按成绩或时间排序，最后服务端分页。返回学生姓名、账号、班级、样本名称和可用成绩。",
         "parameters": [
           {
             "name": "limit",
@@ -2908,6 +2908,20 @@
               "maxLength": 150
             },
             "description": "学生姓名或账号的字面包含匹配，%和_不是通配符"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "latest",
+                "score_desc",
+                "score_asc"
+              ],
+              "default": "latest"
+            },
+            "description": "最新记录、成绩降序或成绩升序；无成绩记录始终排在有成绩记录之后"
           }
         ]
       }
@@ -4896,45 +4910,60 @@
             "minLength": 1,
             "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
           },
+          "file_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "同一样本的有序图片组；首项同时写入file_id兼容旧客户端。"
+          },
           "title": {
             "type": "string"
           },
           "material": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "process": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "magnification": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "etchant": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "class_id": {
             "type": "string"
           }
         },
-        "required": [
-          "file_id",
-          "material",
-          "process",
-          "magnification",
-          "etchant"
+        "anyOf": [
+          {
+            "required": [
+              "file_id"
+            ]
+          },
+          {
+            "required": [
+              "file_ids"
+            ]
+          }
         ],
-        "description": "新练习仅使用本人上传的JPG/PNG/WebP图片，不复制共享图谱或历史示例。四项背景非空，未知可明确填写。",
+        "description": "新练习仅使用本人上传的1至8张JPG/PNG/WebP图片，不复制共享图谱或历史示例。四项材料背景选填。",
         "examples": [
           {
             "title": "45钢 第一次练习",
-            "file_id": "file-example-id",
+            "file_ids": [
+              "file-example-id-1",
+              "file-example-id-2"
+            ],
             "material": "45钢",
             "process": "未知",
             "magnification": "500×",
@@ -4950,28 +4979,35 @@
             "minLength": 1,
             "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
           },
+          "file_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "替换后的同一样本有序图片组。"
+          },
           "title": {
             "type": "string"
           },
           "material": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "process": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "magnification": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "etchant": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "base_version": {
             "type": "integer",
@@ -5019,31 +5055,44 @@
             "minLength": 1,
             "description": "服务端生成的不透明资源 ID；不可据 ID 推断访问权限。"
           },
+          "file_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "title": {
             "type": "string"
           },
           "material": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "process": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "magnification": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "etchant": {
             "type": "string",
-            "minLength": 1,
-            "description": "必须有值；不清楚时明确填写“未知”。上限2000 UTF-8字节。"
+            "description": "选填；上限2000 UTF-8字节。"
           },
           "image_url": {
             "type": "string"
+          },
+          "image_urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "string"
+            }
           },
           "demo": {
             "type": "boolean"
@@ -5061,10 +5110,6 @@
           "created_at",
           "updated_at",
           "file_id",
-          "material",
-          "process",
-          "magnification",
-          "etchant",
           "image_url",
           "demo"
         ]
@@ -6439,6 +6484,15 @@
           "sample_title": {
             "type": "string",
             "description": "教师学习记录列表返回；生成报告时样本快照的标题"
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "教师学习记录列表返回；优先取最新学生修订稿总分，否则取AI原稿总分。"
           }
         },
         "required": [
@@ -7866,6 +7920,15 @@
             "type": "integer",
             "minimum": 0,
             "description": "实际偏移，超出总数时截断到 total。"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "score_desc",
+              "score_asc"
+            ],
+            "description": "教师学习记录接口返回实际排序方式；其他报告列表可缺省。"
           }
         },
         "required": [

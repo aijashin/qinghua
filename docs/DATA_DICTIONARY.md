@@ -174,7 +174,7 @@ FTS5虚拟表；SQLite自行维护其影子表，业务代码不直接写影子�
 
 | `kind` | 核心字段 | 状态和说明 |
 | --- | --- | --- |
-| `samples` | `title, file_id, image_url, material, process, magnification, etchant, demo, source_atlas_id` | `active`。四项背景必须有值；不知道明确填“未知”。换图/改背景产生新版本。使用已发布图谱时复制为独立文件并保留来源标记。 |
+| `samples` | `title, file_id, file_ids, image_url, image_urls, material?, process?, magnification?, etchant?, demo, source_atlas_id` | `active`。图片组含1–8张，首图字段用于兼容旧记录；四项背景选填。换图组/改背景产生新版本。新练习使用本人上传图片。 |
 | `learning-sessions` | `sample_id, title?, sample_snapshot, sample_version, step, completed, parent_session_id?, task_id?, personal_atlas_id?, demo, source_atlas_id` | `active/completed`；步骤为 `atlas/assessment/understanding/practice`。`parent_session_id` 关联上一轮，`task_id` 关联已发布且分配给本人的任务。 |
 | `atlas` | `title, material, phase, process, magnification, etchant, description, observation, file_id?, image_url?, source, demo` | `draft/published`。教师可建草稿，管理员发布；编辑公开条目会恢复草稿。它是审核发布的教学图谱。 |
 | `personal-atlas` | `title, sample_id, sample_snapshot, learning_session_id, file_id, image_url, material, process, phase, dimensions, report_ids, reports, demo, source_atlas_id` | `private`。来自完成的学习轮次。`reports` 是以 `assessment/understanding` 为键的归档报告快照，而不是报告数组；后续即时教师反馈可按 `report_ids` 查询原报告记录。 |

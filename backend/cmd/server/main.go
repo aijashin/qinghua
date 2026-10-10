@@ -85,6 +85,8 @@ func run() error {
 	case "migrate":
 		fmt.Println("数据库迁移已完成")
 		return nil
+	case "seed-demo":
+		return app.SeedSyntheticLearningData(s)
 	case "serve":
 		s.DB.Close()
 	default:

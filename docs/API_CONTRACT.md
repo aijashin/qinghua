@@ -26,8 +26,8 @@ User 包含 `id,username,display_name,role,disabled`；role 为 `student/teacher
 ## 上传、样本与学习轮次
 
 - `POST /files`：multipart 的 `file` 字段；最大20MiB，图片支持 JPEG/PNG/WebP，校验真实类型、完整解码与尺寸。返回 `{id,name,mime,size,url}`。`GET /files/{id}` 受保护预览或下载。
-- `GET/POST /samples`：创建字段为 `{file_id,title,material,process,magnification,etchant,class_id?}`。四项背景信息不能为空；不清楚时明确填写“未知”。新练习须使用本人上传的图片；共享参考图谱只供查阅，不复制成练习。
-- `GET/PATCH /samples/{id}`：修改图片或背景形成新版本；PATCH 可带 `base_version`，版本不符返回409。班级一经创建固定。`GET /samples/{id}/versions` 查看历史。
+- `GET/POST /samples`：创建字段为 `{file_ids,title?,material?,process?,magnification?,etchant?,class_id?}`，`file_ids` 按显示顺序包含1–8张本人上传的图片；兼容旧字段 `file_id`。四项材料背景均为选填。共享参考图谱只供查阅，不复制成练习。
+- `GET/PATCH /samples/{id}`：修改图片组或背景形成新版本；响应同时提供 `file_ids/image_urls`，并保留首图 `file_id/image_url` 兼容旧客户端。PATCH 可带 `base_version`，版本不符返回409。班级一经创建固定。`GET /samples/{id}/versions` 查看历史。
 - `GET/POST /learning-sessions`：创建字段为 `{sample_id,title?,parent_session_id?,task_id?}`，保存不可变 `sample_snapshot` 和 `sample_version`。
 - `GET/PATCH /learning-sessions/{id}`：更新 `{step,completed?}`；step 为 `atlas/assessment/understanding/practice`。`completed:true` 要求本轮同版本评图与五维报告均生成且分别保存采用/修正稿，然后原子创建个人图谱归档。
 
@@ -47,7 +47,7 @@ User 包含 `id,username,display_name,role,disabled`；role 为 `student/teacher
 }
 ```
 
-kind 支持 `assessment/understanding/coaching/identify`。只有样本本人能发起分析，模型未配置返回503 `ai_not_configured`，不生成占位报告。服务端绑定样本及规则快照，传入真实图片字节。
+kind 支持 `assessment/understanding/coaching/identify`。只有样本本人能发起分析，模型未配置返回503 `ai_not_configured`，不生成占位报告。服务端绑定样本及规则快照，传入该样本图片组的真实图片字节，由模型跨视场综合评估；缺失的材料背景明确作为“未提供”，不由客户端伪造。
 
 成功创建返回202 Job，字段包括 `id,owner_id,class_id,kind,sample_id,learning_session_id,status,stage,error?,result_id?,created_at,updated_at`。status 为 `queued/running/succeeded/failed/cancelled`。新任务另提供实际 `progress/progress_history/timings`，以及可选 `started_at/finished_at/error_code/origin_request_id`；旧记录缺少这些字段时不能补成虚构计时。
 
@@ -93,7 +93,7 @@ defects 包含 `name,severity,evidence,suggestion` 和可选 `bbox:{x,y,width,he
 - `POST /practice-tasks/{id}/complete`：`{reflection}`，只完成当前学生的分配，写入 `assignments`，不把全班任务直接标成完成。
 - `GET /personal-atlas`、`GET /personal-atlas/{id}`：本人完成轮次的归档，保留样本、五维理解、原报告和保存时的学生修订。后续教师反馈通过报告接口实时读取。
 - `GET /atlas?q=...`、`GET /atlas/{id}`：共享参考图谱。教师/管理员可创建与编辑草稿；管理员通过 `POST /atlas/{id}/publish` 发布。字段包括 `title,material,phase,process,magnification,etchant,description,observation,file_id,source`。发布须有标题、图片和来源；拒绝demo:true。
-- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions` 在教师班级权限内筛选后分页：`class_id` 精确班级、`student_id` 精确学生、`q` 按姓名或账号检索（按字面匹配，最多150字），`limit` 默认20、范围1–100，`offset` 非负整数。返回 `{items,total,limit,offset}`，报告增加 `owner_name,owner_username,class_name,sample_title`。总量是筛选后的授权报告数，按created_at/id倒序，不跨班级。非法分页返回400，越权班级返回403。
+- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions` 在教师班级权限内筛选后分页：`class_id` 精确班级、`student_id` 精确学生、`q` 按姓名或账号检索（按字面匹配，最多150字），`sort` 支持 `latest/score_desc/score_asc`，`limit` 默认20、范围1–100，`offset` 非负整数。返回 `{items,total,limit,offset,sort}`，报告增加 `owner_name,owner_username,class_name,sample_title,score`。成绩采用最新学生修订稿，否则采用AI原稿；无成绩记录排在有成绩记录之后。非法排序或分页返回400，越权班级返回403。
 
 个人图谱检索与公共知识检索分开；个人修正不会自动变成公共资料，也不会自动训练模型。
 
