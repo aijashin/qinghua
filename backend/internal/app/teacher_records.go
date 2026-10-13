@@ -29,6 +29,15 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	classID, studentID, search := query.Get("class_id"), query.Get("student_id"), strings.TrimSpace(query.Get("q"))
+	kind, reviewStatus := query.Get("kind"), query.Get("review_status")
+	if kind != "" && kind != "assessment" && kind != "understanding" && kind != "coaching" && kind != "identify" {
+		fail(w, 400, "invalid_kind", "模块筛选值无效")
+		return
+	}
+	if reviewStatus != "" && reviewStatus != "pending" && reviewStatus != "reviewed" {
+		fail(w, 400, "invalid_review_status", "复核状态仅支持 pending 或 reviewed")
+		return
+	}
 	sortBy := query.Get("sort")
 	if sortBy == "" {
 		sortBy = "latest"
@@ -58,6 +67,15 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 	if studentID != "" {
 		where += ` AND e.owner_id=?`
 		args = append(args, studentID)
+	}
+	if kind != "" {
+		where += ` AND json_extract(e.data,'$.kind')=?`
+		args = append(args, kind)
+	}
+	if reviewStatus == "reviewed" {
+		where += ` AND e.status='reviewed'`
+	} else if reviewStatus == "pending" {
+		where += ` AND e.status!='reviewed'`
 	}
 	if search != "" {
 		pattern := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(search) + "%"
@@ -101,7 +119,13 @@ func (a *App) submissions(w http.ResponseWriter, r *http.Request) {
 		item["owner_name"], item["owner_username"], item["class_name"] = name, username, className
 		if snapshot, ok := item["sample_snapshot"].(map[string]any); ok {
 			item["sample_title"] = str(snapshot, "title")
+			imageCount := len(stringsArray(snapshot["file_ids"]))
+			if imageCount == 0 && str(snapshot, "file_id") != "" {
+				imageCount = 1
+			}
+			item["image_count"] = imageCount
 		}
+		item["student_checked"] = num(item, "revision_no") > 0
 		if score, ok := reportScore(item); ok {
 			item["score"] = score
 		} else {

@@ -122,7 +122,7 @@ func TestNullScoreAndDimensionsValidation(t *testing.T) {
 		t.Fatal("missing dimensions accepted")
 	}
 }
-func TestCompletionRequiresAdoptionAndKeepsSnapshot(t *testing.T) {
+func TestCompletionRequiresAssessmentAdoptionAndKeepsSnapshot(t *testing.T) {
 	a, s, _, _ := setup(t)
 	ctx := context.Background()
 	snapshot := map[string]any{"id": "sample", "version": 1, "file_id": "f", "title": "图谱", "material": "未知", "process": "正火", "demo": true, "source_atlas_id": "demo-atlas"}
@@ -130,15 +130,9 @@ func TestCompletionRequiresAdoptionAndKeepsSnapshot(t *testing.T) {
 	if _, e := a.completeLearning(ctx, session.String("id"), s.u.ID); e == nil {
 		t.Fatal("completed before adoption")
 	}
-	for _, kind := range []string{"assessment", "understanding"} {
-		d := understandingData()
-		if kind == "assessment" {
-			d = assessmentData()
-		}
-		_, e := a.Store.Create(ctx, "reports", s.u.ID, "", "pending_review", store.Entity{"kind": kind, "learning_session_id": session.String("id"), "sample_version": 1, "revision_no": 1, "latest_revision": map[string]any{"data": d}})
-		if e != nil {
-			t.Fatal(e)
-		}
+	assessment, e := a.Store.Create(ctx, "reports", s.u.ID, "", "pending_review", store.Entity{"kind": "assessment", "learning_session_id": session.String("id"), "sample_version": 1, "revision_no": 1, "latest_revision": map[string]any{"data": assessmentData()}})
+	if e != nil {
+		t.Fatal(e)
 	}
 	done, e := a.completeLearning(ctx, session.String("id"), s.u.ID)
 	if e != nil {
@@ -149,7 +143,33 @@ func TestCompletionRequiresAdoptionAndKeepsSnapshot(t *testing.T) {
 		t.Fatal(e)
 	}
 	p, _ := a.Store.Get(ctx, "personal-atlas", done.String("personal_atlas_id"))
-	if p.String("process") != "正火" || p.String("phase") != "候选组织" || p["demo"] != true || p.String("source_atlas_id") != "demo-atlas" {
+	reports := p["reports"].(map[string]any)
+	reportIDs := p["report_ids"].([]any)
+	if p.String("process") != "正火" || p.String("phase") != "组织待确认" || p["demo"] != true || p.String("source_atlas_id") != "demo-atlas" || p.String("completion_basis") != "assessment_revision" || len(reports) != 1 || len(reportIDs) != 1 || reportIDs[0] != assessment.String("id") {
+		t.Fatal(p)
+	}
+}
+
+func TestCompletionArchivesOptionalUnderstanding(t *testing.T) {
+	a, s, _, _ := setup(t)
+	ctx := context.Background()
+	snapshot := map[string]any{"id": "sample", "version": 1, "file_id": "f", "title": "图谱", "material": "工业纯铁"}
+	session, _ := a.Store.Create(ctx, "learning-sessions", s.u.ID, "", "active", store.Entity{"sample_id": "sample", "sample_snapshot": snapshot, "sample_version": 1})
+	for _, kind := range []string{"assessment", "understanding"} {
+		d := understandingData()
+		if kind == "assessment" {
+			d = assessmentData()
+		}
+		if _, e := a.Store.Create(ctx, "reports", s.u.ID, "", "pending_review", store.Entity{"kind": kind, "learning_session_id": session.String("id"), "sample_version": 1, "revision_no": 1, "latest_revision": map[string]any{"data": d}}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	done, e := a.completeLearning(ctx, session.String("id"), s.u.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p, _ := a.Store.Get(ctx, "personal-atlas", done.String("personal_atlas_id"))
+	if p.String("phase") != "候选组织" || len(p["report_ids"].([]any)) != 2 || p["dimensions"] == nil {
 		t.Fatal(p)
 	}
 }

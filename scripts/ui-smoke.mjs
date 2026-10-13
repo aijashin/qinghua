@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { BackgroundField, ResultMeta, PageTitle } from './src/components/WorkbenchUI'
 import { AssessmentView, SampleImage, SampleEditor, StepPath, ReportDetail } from './src/components/LearningWorkspace'
 import { TeacherSubmissions } from './src/components/TeacherSubmissions'
-import { LibraryView } from './src/components/StudentRecords'
+import { IdentifyTool, LibraryView } from './src/components/StudentRecords'
 import { UnderstandingEditor } from './src/components/LearningEditors'
 import { AnalysisProgress } from './src/components/AnalysisProgress'
 import { mergeProgress } from './src/components/reportPresentation'
@@ -48,6 +48,10 @@ assert(!editor.includes('选择示例') && !editor.includes('示例图谱'), 'sa
 const teacher = render(<TeacherSubmissions classId="a" classes={[{id:'a',name:'材料一班',members:[{id:'student-uuid',username:'s01',display_name:'王同学',role:'student'}]}]} refreshKey={0} onOpen={()=>{}}/> )
 assert(teacher.includes('王同学（s01）') && teacher.includes('学生姓名或账号'), 'teacher filters must expose real identity and name search')
 assert(render(<LibraryView onResume={()=>{}}/>).includes('见微知著'), 'atlas library must display the requested new name')
+const identify = render(<IdentifyTool samples={[]} configured={true} onSampleCreated={()=>{}} onStartLearning={()=>{}}/>)
+assert(identify.includes('上传识图图片') && identify.includes('不创建学习轮次'), 'smart identification must offer independent upload without creating a practice')
+assert(!identify.includes('前往组织图谱') && !identify.includes('准备新样本'), 'smart identification must not route upload through the learning workspace')
+assert(!identify.includes('当前识图样本') && !identify.includes('选择识图样本'), 'upload mode must not render the existing-sample analysis workspace at the same time')
 assert(!jobError({error:'context deadline exceeded',status:'failed'}).includes('context deadline'), 'legacy timeout errors must be readable')
 const steps = render(<StepPath current="atlas" sample={null} reports={[]} onChange={()=>{}}/> )
 assert.equal((steps.match(/disabled=""/g)||[]).length,3,'later steps require a saved sample')

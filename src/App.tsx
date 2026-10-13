@@ -49,7 +49,9 @@ export default function App() {
       const owned = items.filter(item => item.owner_id === userId)
       setSamples(owned); setSessions(rounds)
       const savedId = localStorage.getItem(storageKey)
-      const current = rounds.find(item => item.id === savedId && owned.some(sample => sample.id === item.sample_id)) || rounds.find(item => !item.completed && owned.some(sample => sample.id === item.sample_id))
+      const current = rounds.find(item => !item.completed && item.id === savedId && owned.some(sample => sample.id === item.sample_id))
+        || rounds.find(item => !item.completed && owned.some(sample => sample.id === item.sample_id))
+      if (savedId && !current) localStorage.removeItem(storageKey)
       if (current) await loadSample(current.sample_id, current)
     }).catch(err => { if (alive) setError(errorMessage(err)) }).finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
@@ -75,12 +77,30 @@ export default function App() {
   }
   async function logout() { if (!confirmNavigation()) return; try { await request('/auth/logout', { method: 'POST' }); setAuth(null); setCsrfToken(''); resetWorkspace(); setError('') } catch (err) { setError(errorMessage(err)) } }
   function newSample(parentSession?: LearningSession, taskId?: string) { if (!confirmNavigation()) return; loadGeneration.current++; setLoading(false); setNextTaskId(taskId); setSample(null); setSession(null); setReports([]); setStep('atlas'); setView('learning'); setParent(parentSession || null); localStorage.removeItem(storageKey) }
+  async function startLearningFromSample(record: Sample) {
+    if (!confirmNavigation()) return
+    const existing = sessions.find(item => !item.completed && item.sample_id === record.id)
+    if (existing) {
+      await loadSample(record.id, existing)
+      setView('learning')
+      return
+    }
+    const generation = ++loadGeneration.current
+    setLoading(true); setError('')
+    try {
+      const next = await request<LearningSession>('/learning-sessions', { method: 'POST', body: { sample_id: record.id, title: record.title } })
+      if (generation !== loadGeneration.current) return
+      setSample(record); setSession(next); setReports([]); setSessions(items => [next, ...items]); setStep('atlas'); setView('learning'); localStorage.setItem(storageKey, next.id)
+    } catch (err) { if (generation === loadGeneration.current) setError(errorMessage(err)) }
+    finally { if (generation === loadGeneration.current) setLoading(false) }
+  }
   async function resume(sampleId: string, sessionId?: string) { if (!confirmNavigation()) return; const learning = sessions.find(item => item.id === sessionId) || sessions.find(item => item.sample_id === sampleId); await loadSample(sampleId, learning); setView('learning') }
   if (authLoading) return <div className="app-connecting"><Loading text="正在连接学习工作台…" /></div>
   if (!user) return <Login error={error} onLogin={value => { resetWorkspace(); activeUserId.current = value.user?.id || ''; setAuth(value); setCsrfToken(value.csrf_token); setError('') }} />
   const activeReports = reports.filter(item => !session || item.learning_session_id === session.id || (!item.learning_session_id && (!item.sample_version || item.sample_version === sample?.version)))
   const assessment = activeReports.find(item => item.kind === 'assessment'), understanding = activeReports.find(item => item.kind === 'understanding')
   const activeStep = steps.find(item => item.id === step)!
+  const resumableSessions = sessions.filter(item => !item.completed && samples.some(record => record.id === item.sample_id))
   const pageName = view === 'learning' ? activeStep.name : view === 'library' ? '见微知著' : view === 'identify' ? '智能识图' : view === 'teacher' ? '教师工作台' : '平台治理'
   const descriptions: Record<LearningStep, string> = {
     atlas: '上传图像，记录本次实验的背景。',
@@ -123,13 +143,28 @@ export default function App() {
         {view === 'learning' ? <>
           <PageTitle title={activeStep.name} description={descriptions[step]} action={<Button variant="secondary" onClick={() => newSample()}><Plus size={16} />新建练习</Button>} />
           <StepPath current={step} sample={sample} reports={activeReports} onChange={next => void changeStep(next)} />
-          {samples.length > 0 && step === 'atlas' && <div className="toolbar sample-switcher"><label htmlFor="resume-sample">继续已有练习</label><select id="resume-sample" value={sample?.id || ''} onChange={event => { if (event.target.value) void resume(event.target.value) }}><option value="">新建样本</option>{samples.map(item => <option key={item.id} value={item.id}>{item.title || item.material}</option>)}</select></div>}
+          {step === 'atlas' && samples.length > 0 && <div className="toolbar sample-switcher">
+            <div><label htmlFor="resume-session">继续未完成练习</label><small>已归档记录请前往“见微知著”查看</small></div>
+            {resumableSessions.length ? <select id="resume-session" value={session && !session.completed ? session.id : ''} onChange={event => {
+              const learning = sessions.find(item => item.id === event.target.value)
+              if (learning) void resume(learning.sample_id, learning.id)
+            }}>
+              <option value="">选择未完成练习</option>
+              {resumableSessions.map(item => {
+                const record = samples.find(sample => sample.id === item.sample_id)
+                const title = item.title || item.sample_snapshot?.title || record?.title || record?.material || '未命名练习'
+                const currentStep = steps.find(option => option.id === item.step)?.name || '组织图谱'
+                const updated = new Date(item.updated_at || item.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                return <option key={item.id} value={item.id}>{title} · {currentStep} · {updated}</option>
+              })}
+            </select> : <span className="muted">当前没有未完成练习</span>}
+          </div>}
           {loading ? <Loading /> : step === 'atlas' ?
             <SampleEditor key={`${sample?.id || 'new'}-${sample?.version || 0}`} sample={sample} onSaved={saved} onStart={() => void changeStep('assessment')} nextParent={parent} clearParent={() => setParent(null)} /> : sample && step === 'assessment' ?
-            <AssessmentView sample={sample} session={session} report={assessment} configured={auth.ai_configured} reload={reloadReports} onNext={() => void changeStep('understanding')} /> : sample && step === 'understanding' ?
+            <AssessmentView sample={sample} session={session} report={assessment} configured={auth.ai_configured} reload={reloadReports} onNext={() => void changeStep('understanding')} onCompleted={value => { setSession(value); setSessions(items => items.map(item => item.id === value.id ? value : item)); localStorage.removeItem(storageKey) }} /> : sample && step === 'understanding' ?
             <UnderstandingView sample={sample} session={session} report={understanding} configured={auth.ai_configured} reload={reloadReports} onNext={() => void changeStep('practice')} /> : sample &&
             <PracticeView sample={sample} session={session} reports={activeReports} configured={auth.ai_configured} reloadReports={reloadReports} onNext={newSample} onCompleted={value => { setSession(value); setSessions(items => items.map(item => item.id === value.id ? value : item)) }} />}
-        </> : view === 'library' ? <LibraryView onResume={(sampleId, sessionId) => void resume(sampleId, sessionId)} /> : view === 'identify' ? <IdentifyTool samples={samples} configured={auth.ai_configured} onPrepare={() => newSample()} /> : view === 'teacher' ? <TeacherWorkspace /> : <AdminWorkspace />}
+        </> : view === 'library' ? <LibraryView onResume={(sampleId, sessionId) => void resume(sampleId, sessionId)} /> : view === 'identify' ? <IdentifyTool samples={samples} configured={auth.ai_configured} onSampleCreated={record => setSamples(items => [record, ...items.filter(item => item.id !== record.id)])} onStartLearning={record => void startLearningFromSample(record)} /> : view === 'teacher' ? <TeacherWorkspace /> : <AdminWorkspace />}
         <footer className="footer-note">见微知著 · 学习参考，保留观察依据与修正记录</footer>
       </main>
     </div>

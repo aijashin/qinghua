@@ -2867,7 +2867,7 @@
             "$ref": "#/components/responses/BadRequest"
           }
         },
-        "description": "教师/管理员专用。仅学生报告，先应用班级权限，再按班级、学生、姓名或账号筛选，可按成绩或时间排序，最后服务端分页。返回学生姓名、账号、班级、样本名称和可用成绩。",
+        "description": "教师/管理员专用。仅学生报告，先应用班级权限，再按班级、学生、模块、核对状态、姓名或账号筛选，可按成绩或时间排序，最后服务端分页。返回学生姓名、账号、班级、样本名称、图片数、学生核对状态和可用成绩。",
         "parameters": [
           {
             "name": "limit",
@@ -2908,6 +2908,32 @@
               "maxLength": 150
             },
             "description": "学生姓名或账号的字面包含匹配，%和_不是通配符"
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "assessment",
+                "understanding",
+                "coaching",
+                "identify"
+              ]
+            },
+            "description": "按报告模块精确筛选"
+          },
+          {
+            "name": "review_status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "reviewed"
+              ]
+            },
+            "description": "按教师复核状态精确筛选"
           },
           {
             "name": "sort",
@@ -5226,6 +5252,13 @@
           "personal_atlas_id": {
             "type": "string"
           },
+          "completion_basis": {
+            "type": "string",
+            "enum": [
+              "assessment_revision"
+            ],
+            "description": "当前学习轮次的归档完成依据。"
+          },
           "demo": {
             "type": "boolean",
             "description": "沿样本快照保留教学示例标志，不自动变成真实实验记录。"
@@ -6493,6 +6526,15 @@
             "minimum": 0,
             "maximum": 100,
             "description": "教师学习记录列表返回；优先取最新学生修订稿总分，否则取AI原稿总分。"
+          },
+          "image_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "教师学习记录列表返回；本轮样本快照中的图片数量。"
+          },
+          "student_checked": {
+            "type": "boolean",
+            "description": "教师学习记录列表返回；学生是否已保存采用或修正稿。"
           }
         },
         "required": [

@@ -175,11 +175,11 @@ FTS5虚拟表；SQLite自行维护其影子表，业务代码不直接写影子�
 | `kind` | 核心字段 | 状态和说明 |
 | --- | --- | --- |
 | `samples` | `title, file_id, file_ids, image_url, image_urls, material?, process?, magnification?, etchant?, demo, source_atlas_id` | `active`。图片组含1–8张，首图字段用于兼容旧记录；四项背景选填。换图组/改背景产生新版本。新练习使用本人上传图片。 |
-| `learning-sessions` | `sample_id, title?, sample_snapshot, sample_version, step, completed, parent_session_id?, task_id?, personal_atlas_id?, demo, source_atlas_id` | `active/completed`；步骤为 `atlas/assessment/understanding/practice`。`parent_session_id` 关联上一轮，`task_id` 关联已发布且分配给本人的任务。 |
+| `learning-sessions` | `sample_id, title?, sample_snapshot, sample_version, step, completed, completion_basis?, parent_session_id?, task_id?, personal_atlas_id?, demo, source_atlas_id` | `active/completed`；步骤为 `atlas/assessment/understanding/practice`。当前完成依据为 `assessment_revision`；`parent_session_id` 关联上一轮，`task_id` 关联已发布且分配给本人的任务。 |
 | `atlas` | `title, material, phase, process, magnification, etchant, description, observation, file_id?, image_url?, source, demo` | `draft/published`。教师可建草稿，管理员发布；编辑公开条目会恢复草稿。它是审核发布的教学图谱。 |
-| `personal-atlas` | `title, sample_id, sample_snapshot, learning_session_id, file_id, image_url, material, process, phase, dimensions, report_ids, reports, demo, source_atlas_id` | `private`。来自完成的学习轮次。`reports` 是以 `assessment/understanding` 为键的归档报告快照，而不是报告数组；后续即时教师反馈可按 `report_ids` 查询原报告记录。 |
+| `personal-atlas` | `title, sample_id, sample_snapshot, learning_session_id, file_id, image_url, material, process, phase, dimensions, report_ids, reports, completion_basis, demo, source_atlas_id` | `private`。来自完成的学习轮次。`reports` 至少包含 `assessment` 归档报告快照；同版本识相悟道已有学生稿时再包含 `understanding`。后续即时教师反馈可按 `report_ids` 查询原报告记录。 |
 
-学习完成要求同一轮次的评图和五维理解报告都存在，版本与轮次样本相符，且分别至少保存一份采用/修正稿。完成时写入个人图谱并更新学习轮次，重复完成返回已存在的归档。`demo` 始终沿样本、轮次、报告和个人图谱传播，不因学生完成学习而变成真实实验数据。
+学习完成要求同一轮次、同一样本版本的鹰眼评图存在，且至少保存一份采用/修正稿。识相悟道和炉火纯青保留为可选学习环节；若同版本识相悟道已有学生稿，完成时一并归档。完成时写入个人图谱、设置 `completion_basis:"assessment_revision"` 并更新学习轮次，重复完成返回已存在的归档。`demo` 始终沿样本、轮次、报告和个人图谱传播，不因学生完成学习而变成真实实验数据。
 
 ### AI报告及来源
 

@@ -29,7 +29,7 @@ User 包含 `id,username,display_name,role,disabled`；role 为 `student/teacher
 - `GET/POST /samples`：创建字段为 `{file_ids,title?,material?,process?,magnification?,etchant?,class_id?}`，`file_ids` 按显示顺序包含1–8张本人上传的图片；兼容旧字段 `file_id`。四项材料背景均为选填。共享参考图谱只供查阅，不复制成练习。
 - `GET/PATCH /samples/{id}`：修改图片组或背景形成新版本；响应同时提供 `file_ids/image_urls`，并保留首图 `file_id/image_url` 兼容旧客户端。PATCH 可带 `base_version`，版本不符返回409。班级一经创建固定。`GET /samples/{id}/versions` 查看历史。
 - `GET/POST /learning-sessions`：创建字段为 `{sample_id,title?,parent_session_id?,task_id?}`，保存不可变 `sample_snapshot` 和 `sample_version`。
-- `GET/PATCH /learning-sessions/{id}`：更新 `{step,completed?}`；step 为 `atlas/assessment/understanding/practice`。`completed:true` 要求本轮同版本评图与五维报告均生成且分别保存采用/修正稿，然后原子创建个人图谱归档。
+- `GET/PATCH /learning-sessions/{id}`：更新 `{step,completed?}`；step 为 `atlas/assessment/understanding/practice`。`completed:true` 只要求本轮同版本鹰眼评图已保存采用/修正稿，然后原子创建个人图谱归档并写入 `completion_basis:"assessment_revision"`。同版本识相悟道若已有学生稿则一并归档，没有时不阻塞完成。
 
 历史轮次始终引用当时的图片和背景。背景更新后的新轮次不能借用旧报告通过归档校验。示例来源通过 `demo/source_atlas_id` 随快照保留。
 
@@ -91,9 +91,9 @@ defects 包含 `name,severity,evidence,suggestion` 和可选 `bbox:{x,y,width,he
 - `POST /practice-tasks/{id}/publish`：明确发布。分配列表在服务器校验；学生看不到未发布任务或他人的反思。
 - `POST /practice-tasks/{id}/attempts`：`{answer}`，保存实际提交；GET 同路径读取授权提交。提交不代表自动批改。
 - `POST /practice-tasks/{id}/complete`：`{reflection}`，只完成当前学生的分配，写入 `assignments`，不把全班任务直接标成完成。
-- `GET /personal-atlas`、`GET /personal-atlas/{id}`：本人完成轮次的归档，保留样本、五维理解、原报告和保存时的学生修订。后续教师反馈通过报告接口实时读取。
+- `GET /personal-atlas`、`GET /personal-atlas/{id}`：本人完成轮次的归档，至少保留样本、鹰眼评图原报告和保存时的学生修订；本轮已有识相悟道学生稿时同时归档。后续教师反馈通过报告接口实时读取。
 - `GET /atlas?q=...`、`GET /atlas/{id}`：共享参考图谱。教师/管理员可创建与编辑草稿；管理员通过 `POST /atlas/{id}/publish` 发布。字段包括 `title,material,phase,process,magnification,etchant,description,observation,file_id,source`。发布须有标题、图片和来源；拒绝demo:true。
-- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions` 在教师班级权限内筛选后分页：`class_id` 精确班级、`student_id` 精确学生、`q` 按姓名或账号检索（按字面匹配，最多150字），`sort` 支持 `latest/score_desc/score_asc`，`limit` 默认20、范围1–100，`offset` 非负整数。返回 `{items,total,limit,offset,sort}`，报告增加 `owner_name,owner_username,class_name,sample_title,score`。成绩采用最新学生修订稿，否则采用AI原稿；无成绩记录排在有成绩记录之后。非法排序或分页返回400，越权班级返回403。
+- `GET /classes` 返回有权限的班级及成员；`GET /teacher/submissions` 在教师班级权限内筛选后分页：`class_id` 精确班级、`student_id` 精确学生、`kind` 精确模块、`review_status` 精确教师复核状态、`q` 按姓名或账号检索（按字面匹配，最多150字），`sort` 支持 `latest/score_desc/score_asc`，`limit` 默认20、范围1–100，`offset` 非负整数。返回 `{items,total,limit,offset,sort}`，报告增加 `owner_name,owner_username,class_name,sample_title,score,image_count,student_checked`。成绩采用最新学生修订稿，否则采用AI原稿；无成绩记录排在有成绩记录之后。非法筛选、排序或分页返回400，越权班级返回403。
 
 个人图谱检索与公共知识检索分开；个人修正不会自动变成公共资料，也不会自动训练模型。
 

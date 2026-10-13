@@ -153,8 +153,28 @@ input[type=file] { font-size: 13px; }
 .upload-box > svg { color: var(--cyan); }
 .upload-box strong { display: block; overflow-wrap: anywhere; }
 .upload-box small { color: var(--muted); }
-.sample-switcher { justify-content: flex-end; font-size: 13px; }
-.sample-switcher select { max-width: 300px; }
+.upload-selection { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #f8fbfc; }
+.upload-selection-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: white; }
+.upload-selection-head > div { min-width: 0; }
+.upload-selection-head span { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 650; }
+.upload-selection-head small { display: block; margin-top: 4px; color: var(--muted); }
+.upload-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; max-height: 560px; overflow-y: auto; }
+.upload-preview-card { min-width: 0; overflow: hidden; border: 1px solid #d9e5e9; border-radius: 8px; background: white; }
+.upload-preview-card img { display: block; width: 100%; height: 150px; object-fit: cover; background: #173543; }
+.upload-preview-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; }
+.upload-preview-meta > span { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 11px; }
+.upload-preview-meta > span b { color: #08727d; font: 700 10px/1 var(--mono); }
+.upload-preview-meta > span span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-preview-meta > div { display: flex; flex-shrink: 0; gap: 3px; }
+.upload-preview-meta button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 5px; background: #edf4f6; color: var(--muted); }
+.upload-preview-meta button:hover:not(:disabled) { color: #08727d; background: #e1f0f1; }
+.upload-preview-meta button:last-child:hover:not(:disabled) { color: var(--red); background: #fff0ee; }
+.upload-preview-meta button:disabled { opacity: .35; }
+.sample-switcher { justify-content: flex-end; font-size: 13px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbfc; }
+.sample-switcher > div { display: flex; flex-direction: column; gap: 3px; margin-right: auto; }
+.sample-switcher label { color: var(--ink); font-weight: 650; }
+.sample-switcher small { color: var(--muted); }
+.sample-switcher select { width: min(520px, 100%); max-width: 520px; }
 .step-path { display: flex; border: 1px solid var(--line); background: white; border-radius: 10px; margin-bottom: 24px; overflow: hidden; }
 .step-path button { flex: 1; min-width: 0; border: 0; border-right: 1px solid var(--line); background: white; display: flex; align-items: center; gap: 10px; padding: 16px; min-height: 62px; color: var(--muted); text-align: left; font-size: 14px; }
 .step-path button:last-child { border-right: 0; }
@@ -240,6 +260,39 @@ input[type=file] { font-size: 13px; }
 .score-total small { font-size: 14px; color: var(--muted); margin-left: 4px; }
 .citation { padding: 16px; background: #f2f7f9; border-radius: 8px; margin-top: 12px; line-height: 1.8; }
 .citation strong { display: block; color: #086a76; margin-bottom: 6px; }
+.assessment-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr);
+  gap: 24px;
+  margin-bottom: 24px;
+  padding: 24px;
+  border: 1px solid #cfe2e5;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #f5fbfb 0%, #eaf5f5 100%);
+}
+.assessment-overview-copy { min-width: 0; }
+.assessment-overview-copy .row { color: var(--muted); font-size: 12px; }
+.assessment-overview-copy h2 { margin-top: 12px; font-size: 24px; color: #075f69; }
+.assessment-overview-copy p { margin-top: 8px; color: var(--muted); }
+.assessment-overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-self: stretch;
+}
+.assessment-overview-metrics > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 14px 10px;
+  border: 1px solid #d7e7e9;
+  border-radius: 8px;
+  background: #ffffffb8;
+  text-align: center;
+}
+.assessment-overview-metrics span { color: var(--muted); font-size: 11px; }
+.assessment-overview-metrics strong { margin-top: 8px; color: var(--ink); font-size: 18px; }
 .assessment-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
 .assessment-visual { min-width: 0; }
 .assessment-findings { margin-top: 24px; }
@@ -306,6 +359,16 @@ input[type=file] { font-size: 13px; }
 .finding-card-body b { margin-right: 6px; color: var(--ink); }
 .report-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .result-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--muted); font-size: 12px; }
+.assessment-completion {
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  border: 1px solid #cfe2e5;
+  border-radius: var(--radius);
+  background: #f6fafb;
+}
+.assessment-completion h3 { margin-top: 8px; }
+.assessment-completion p { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.assessment-completion .form-actions { justify-content: flex-start; margin-top: 18px; }
 .score-summary { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, #f7fbfb 0%, #eef7f7 100%); }
 .score-summary-copy { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 2px 12px; }
 .score-summary-copy > span { grid-column: 1; color: var(--muted); font-size: 12px; font-weight: 600; }
@@ -394,14 +457,30 @@ input[type=file] { font-size: 13px; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 24px; }
 .toolbar input { max-width: 390px; }
 .toolbar select { max-width: 220px; }
-.teacher-record-filters { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--line); }
-.teacher-record-filters select { flex: 1 1 180px; max-width: 300px; }
-.teacher-record-filters input { flex: 1 1 220px; max-width: 390px; }
+.teacher-record-filters { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(200px, 1fr) repeat(3, minmax(140px, .75fr)) auto; gap: 12px; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--line); }
+.teacher-record-filters select, .teacher-record-filters input { max-width: none; }
 .record-pagination { flex-wrap: wrap; font-size: 13px; }
 .record-pagination .row { flex-wrap: wrap; }
 .record-pagination select { width: auto; }
 .sample-upload-actions:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
 .records { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.teacher-record-summary, .learning-record-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.teacher-record-summary > div, .learning-record-summary > div {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+.teacher-record-summary span, .learning-record-summary span { display: block; color: var(--muted); font-size: 12px; }
+.teacher-record-summary strong, .learning-record-summary strong { display: block; margin-top: 10px; font-size: 20px; font-weight: 650; }
+.teacher-record-summary small, .learning-record-summary small { display: block; margin-top: 7px; color: var(--muted); overflow-wrap: anywhere; }
+.teacher-record-layout { grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr); align-items: start; }
 .record-card { border: 1px solid var(--line); border-radius: var(--radius); background: white; overflow: hidden; cursor: pointer; text-align: left; padding: 0; color: var(--ink); }
 .record-card:hover { border-color: #7eb2bf; }
 .record-thumb { height: 180px; background: #173543; display: flex; align-items: center; justify-content: center; color: #a2c8d7; overflow: hidden; }
@@ -478,7 +557,11 @@ input[type=file] { font-size: 13px; }
   .sample-workbench { gap: 24px; }
   .records { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assessment-layout { grid-template-columns: 1fr; }
+  .assessment-overview { grid-template-columns: 1fr; }
   .assessment-visual .image-stage { min-height: 320px; }
+  .teacher-record-layout { grid-template-columns: 1fr; }
+  .teacher-record-summary, .learning-record-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .teacher-record-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
@@ -526,7 +609,9 @@ input[type=file] { font-size: 13px; }
   .panel-footer > .row { width: 100%; justify-content: flex-end; }
   .sample-workbench { gap: 24px; }
   .sample-upload-actions { grid-template-columns: 1fr; }
+  .upload-preview-grid { grid-template-columns: 1fr; }
   .sample-switcher { justify-content: flex-start; }
+  .sample-switcher > div { width: 100%; }
   .sample-switcher select { max-width: none; }
   .fields { grid-template-columns: 1fr; }
   .step-path button { justify-content: center; padding: 12px 4px; font-size: 12px; gap: 8px; flex-direction: column; }
@@ -538,6 +623,10 @@ input[type=file] { font-size: 13px; }
   .score-summary { padding: 18px 16px; flex-wrap: wrap; }
   .score-summary-copy { grid-template-columns: auto; }
   .score-summary-copy p { grid-column: 1; grid-row: auto; }
+  .assessment-overview { padding: 20px 16px; }
+  .assessment-overview-metrics { grid-template-columns: 1fr; }
+  .assessment-completion { padding: 18px 16px; }
+  .assessment-completion .form-actions .btn { width: 100%; }
   .criteria-list { padding: 12px 12px 4px; }
   .criterion-card-head { grid-template-columns: minmax(0, 1fr) auto; padding: 14px; gap: 12px; }
   .criterion-score-group { grid-column: 1 / -1; width: 100%; }
@@ -547,6 +636,8 @@ input[type=file] { font-size: 13px; }
   .criterion-rationale section { padding: 14px; }
   .criterion-rationale section + section { border-left: 0; border-top: 1px solid #e5edef; }
   .records { gap: 16px; grid-template-columns: 1fr; }
+  .teacher-record-summary, .learning-record-summary { grid-template-columns: 1fr; }
+  .teacher-record-filters { grid-template-columns: 1fr; padding: 16px; }
   .record-thumb { height: 180px; }
   .record-info { padding: 16px; }
   .comparison { grid-template-columns: 1fr; gap: 24px; }

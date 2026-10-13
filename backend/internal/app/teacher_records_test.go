@@ -88,3 +88,48 @@ func TestTeacherRecordsSortByAssessmentScore(t *testing.T) {
 		t.Fatal("invalid sort accepted", code)
 	}
 }
+
+func TestTeacherRecordsModuleReviewAndImageMetadata(t *testing.T) {
+	a, student, _, teacher := setup(t)
+	ctx := context.Background()
+	_, _ = a.Store.DB.Exec(`INSERT INTO classes VALUES('filter-class','筛选班',?)`, store.Now())
+	for _, id := range []string{student.u.ID, teacher.u.ID} {
+		_, _ = a.Store.DB.Exec(`INSERT INTO class_members VALUES('filter-class',?)`, id)
+	}
+	assessment, err := a.Store.Create(ctx, "reports", student.u.ID, "filter-class", "pending_review", store.Entity{
+		"kind":        "assessment",
+		"revision_no": 1,
+		"sample_snapshot": map[string]any{
+			"title":    "三视场评图",
+			"file_ids": []string{"f1", "f2", "f3"},
+		},
+		"data": map[string]any{"total_score": 78},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Store.Create(ctx, "reports", student.u.ID, "filter-class", "reviewed", store.Entity{
+		"kind":            "understanding",
+		"sample_snapshot": map[string]any{"title": "选做理解", "file_id": "f1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, pending := teacher.call("GET", "/api/v1/teacher/submissions?kind=assessment&review_status=pending", nil)
+	if code != 200 || pending["total"] != float64(1) {
+		t.Fatal(code, pending)
+	}
+	item := pending["items"].([]any)[0].(map[string]any)
+	if item["id"] != assessment.String("id") || item["image_count"] != float64(3) || item["student_checked"] != true {
+		t.Fatal(item)
+	}
+	code, reviewed := teacher.call("GET", "/api/v1/teacher/submissions?review_status=reviewed", nil)
+	if code != 200 || reviewed["total"] != float64(1) || reviewed["items"].([]any)[0].(map[string]any)["image_count"] != float64(1) {
+		t.Fatal(code, reviewed)
+	}
+	for _, path := range []string{"?kind=invalid", "?review_status=invalid"} {
+		if code, _ := teacher.call("GET", "/api/v1/teacher/submissions"+path, nil); code != 400 {
+			t.Fatal(path, code)
+		}
+	}
+}

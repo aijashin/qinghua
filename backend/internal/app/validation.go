@@ -114,28 +114,35 @@ func (a *App) completeLearning(ctx context.Context, id, owner string) (store.Ent
 		}
 	}
 	rows.Close()
-	for _, kind := range []string{"assessment", "understanding"} {
-		rep := selected[kind]
-		if rep == nil || num(rep, "revision_no") < 1 {
-			return nil, errors.New("请先完成本轮评图与五维理解，并分别保存采用或修正稿")
-		}
-		if rep["sample_version"] != session["sample_version"] {
-			return nil, errors.New("报告与本轮样本版本不匹配")
-		}
+	assessment := selected["assessment"]
+	if assessment == nil || num(assessment, "revision_no") < 1 {
+		return nil, errors.New("请先完成本轮鹰眼评图，并保存采用或修正稿")
+	}
+	if assessment["sample_version"] != session["sample_version"] {
+		return nil, errors.New("评图报告与本轮样本版本不匹配")
 	}
 	snap, _ := session["sample_snapshot"].(map[string]any)
-	under := selected["understanding"]
-	revision, _ := under["latest_revision"].(map[string]any)
-	d, _ := revision["data"].(map[string]any)
-	phase := str(d, "final_phase")
-	if phase == "" {
-		if cs, ok := d["candidates"].([]any); ok && len(cs) > 0 {
+	phase := "组织待确认"
+	var dimensions any
+	reportIDs := []string{assessment.String("id")}
+	archivedReports := map[string]store.Entity{"assessment": assessment}
+	if under := selected["understanding"]; under != nil && num(under, "revision_no") >= 1 && under["sample_version"] == session["sample_version"] {
+		revision, _ := under["latest_revision"].(map[string]any)
+		d, _ := revision["data"].(map[string]any)
+		if value := str(d, "final_phase"); value != "" {
+			phase = value
+		} else if cs, ok := d["candidates"].([]any); ok && len(cs) > 0 {
 			c, _ := cs[0].(map[string]any)
-			phase = str(c, "name")
+			if value := str(c, "name"); value != "" {
+				phase = value
+			}
 		}
+		dimensions = d["dimensions"]
+		reportIDs = append(reportIDs, under.String("id"))
+		archivedReports["understanding"] = under
 	}
 	aid, now := store.ID(), store.Now()
-	atlas := store.Entity{"id": aid, "owner_id": owner, "class_id": session.String("class_id"), "status": "private", "version": 1, "created_at": now, "updated_at": now, "title": str(snap, "title"), "sample_id": session["sample_id"], "sample_snapshot": snap, "learning_session_id": id, "file_id": str(snap, "file_id"), "image_url": str(snap, "image_url"), "material": str(snap, "material"), "process": str(snap, "process"), "phase": phase, "dimensions": d["dimensions"], "report_ids": []string{selected["assessment"].String("id"), under.String("id")}, "reports": selected, "demo": demoRecord(snap), "source_atlas_id": snap["source_atlas_id"]}
+	atlas := store.Entity{"id": aid, "owner_id": owner, "class_id": session.String("class_id"), "status": "private", "version": 1, "created_at": now, "updated_at": now, "title": str(snap, "title"), "sample_id": session["sample_id"], "sample_snapshot": snap, "learning_session_id": id, "file_id": str(snap, "file_id"), "image_url": str(snap, "image_url"), "material": str(snap, "material"), "process": str(snap, "process"), "phase": phase, "dimensions": dimensions, "report_ids": reportIDs, "reports": archivedReports, "completion_basis": "assessment_revision", "demo": demoRecord(snap), "source_atlas_id": snap["source_atlas_id"]}
 	ab, _ := json.Marshal(atlas)
 	if _, e = tx.ExecContext(ctx, `INSERT INTO entities(id,kind,owner_id,class_id,status,data,created_at,updated_at) VALUES(?,'personal-atlas',?,?,'private',?,?,?)`, aid, owner, session.String("class_id"), string(ab), now, now); e != nil {
 		return nil, e
@@ -147,6 +154,7 @@ func (a *App) completeLearning(ctx context.Context, id, owner string) (store.Ent
 	session["step"] = "practice"
 	session["status"] = "completed"
 	session["personal_atlas_id"] = aid
+	session["completion_basis"] = "assessment_revision"
 	if e = updateEntityTx(ctx, tx, session, version); e != nil {
 		return nil, e
 	}
